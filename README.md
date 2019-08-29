@@ -3,7 +3,7 @@ This is a parser and browser for LuaJIT 2.0 bytecode written in C++ and Qt. See 
 The goal of this project is to better understand how LuaJIT works. The viewer can be used to edit and compile Lua code and display it side by side with its corresponding LuaJIT bytecode. More to come.
 
 
-![LjBcViewer Screenshot](http://software.rochus-keller.info/LjBcViewer-screenshot-1.png)
+![LjBcViewer Screenshot](http://software.rochus-keller.info/LjBcViewer_screenshot_1.png)
 
 
 ### Build Steps
