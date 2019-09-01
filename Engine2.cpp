@@ -292,7 +292,7 @@ static int file_writer (lua_State *L, const void* b, size_t size, void* f)
 	return 0; // = no error
 }
 
-bool Engine2::saveBinary(const QByteArray& source, const QByteArray& path)
+bool Engine2::saveBinary(const QByteArray& source, const QByteArray& name, const QByteArray& path)
 {
     d_lastError.clear();
     FILE* f = ::fopen( path,"wb" );
@@ -301,7 +301,7 @@ bool Engine2::saveBinary(const QByteArray& source, const QByteArray& path)
         d_lastError = "Unable to open file for writing";
         return false;
     }
-    if( !pushFunction( source ) )
+    if( !pushFunction( source, name ) )
         return false;
 
     // Stack: Function
@@ -383,11 +383,11 @@ bool Engine2::runFunction(int nargs, int nresults)
 	d_lastError.clear();
     d_running = true;
 	d_dbgCmd = d_defaultDbgCmd;
+    d_returns.clear();
 	notifyStart();
     // TODO: ev. Stacktrace mittels errfunc
 	// Lua: All arguments and the function value are popped from the stack when the function is called.
     const int err = lua_pcall( d_ctx, nargs, nresults, 0 );
-    d_running = false;
     switch( err )
     {
     case LUA_ERRRUN:
@@ -403,11 +403,14 @@ bool Engine2::runFunction(int nargs, int nresults)
         d_lastError = "Lua unknown error";
         break;
     }
-	notifyEnd();
+    d_running = false;
 	const int postTop = lua_gettop( d_ctx );
 	if( nresults != LUA_MULTRET )
 		Q_ASSERT( postTop == ( preTop - nargs - 1 + nresults ) );
-	return (err == 0);
+    for( int i = preTop; i <= postTop; i++ )
+        d_returns << getValueString( i );
+    notifyEnd();
+    return (err == 0);
 }
 
 void Engine2::collect()

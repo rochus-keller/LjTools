@@ -24,6 +24,7 @@
 #include <QVector>
 #include <QHash>
 #include <QVariant>
+#include <QSharedData>
 
 class QIODevice;
 
@@ -34,17 +35,18 @@ namespace Lua
     public:
         typedef QVector<quint32> CodeList;
         typedef QVector<quint16> UpvalList;
-        struct LuaTable
+        struct ConstTable
         {
             QHash<QVariant,QVariant> d_hash;
             QVector<QVariant> d_array;
         };
 
-        struct Function
+        struct Function : public QSharedData
         {
             enum { UvLocalMask = 0x8000, /* Upvalue for local slot. */
                    UvImmutableMask = 0x4000 /* Immutable upvalue. */ // a local seems to be immutable if only initialized but never changed
                  };
+            QString d_sourceFile;
             quint32 d_id; // index in bytecode file
             quint8 d_flags;
             quint8 d_numparams;
@@ -56,7 +58,7 @@ namespace Lua
             UpvalList d_upvals;
             QVariantList d_constObjs;
             QVariantList d_constNums;
-            QVector<quint32> d_lines; // relativ zu d_firstline
+            QVector<quint32> d_lines;
             QByteArrayList d_upNames;
             struct Var
             {
@@ -72,6 +74,7 @@ namespace Lua
             bool isLocalUpval( int i ) const { return d_upvals[i] & UvLocalMask; }
             bool isImmutableUpval( int i ) const  { return d_upvals[i] & UvImmutableMask; }
         };
+        typedef QExplicitlySharedDataPointer<Function> FuncRef;
         struct ByteCode
         {
             enum FieldType {
@@ -99,7 +102,8 @@ namespace Lua
             quint8 d_a, d_b;
             quint16 d_cd;
             quint8 d_ta, d_tb, d_tcd;
-            ByteCode():d_ta(Unused),d_tb(Unused),d_tcd(Unused),d_a(0),d_b(0),d_cd(0),d_name(""){}
+            quint8 d_op;
+            ByteCode():d_ta(Unused),d_tb(Unused),d_tcd(Unused),d_a(0),d_b(0),d_cd(0),d_name(""),d_op(0){}
             int getCd() const {
                 switch( d_tcd )
                 {
@@ -115,7 +119,7 @@ namespace Lua
 
         explicit JitBytecode(QObject *parent = 0);
         bool parse( const QString& file );
-        const QList<Function>& getFuncs() const { return d_funcs; }
+        const QList<FuncRef>& getFuncs() const { return d_funcs; }
         Function* getRoot() const;
         static ByteCode dissectByteCode(quint32);
     protected:
@@ -124,15 +128,15 @@ namespace Lua
         bool error( const QString& );
         QVariantList readObjConsts( QIODevice* in, quint32 len );
     private:
-        QByteArray d_name;
-        QList<Function> d_funcs;
-        QList<Function*> d_fstack;
+        QString d_name;
+        QList<FuncRef> d_funcs;
+        QList<FuncRef> d_fstack;
         quint8 d_flags;
     };
 }
 
-Q_DECLARE_METATYPE(Lua::JitBytecode::LuaTable)
-Q_DECLARE_METATYPE(Lua::JitBytecode::Function*)
+Q_DECLARE_METATYPE(Lua::JitBytecode::ConstTable)
+Q_DECLARE_METATYPE(Lua::JitBytecode::FuncRef)
 uint qHash(const QVariant& v, uint seed = 0);
 
 #endif // LUAJITBYTECODE_H

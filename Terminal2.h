@@ -34,9 +34,10 @@ namespace Lua
 		void paste();
 		void clear();
 		Terminal2(QWidget*, Engine2 * = 0);
-        void printText(const QString& , bool err = false);
         virtual ~Terminal2();
-	private:
+    public slots:
+        void printText(const QString& , bool err = false);
+    private:
         Lua::Engine2* d_lua;
 		QTextCursor d_out;
 		QString d_line;

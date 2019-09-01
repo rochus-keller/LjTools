@@ -259,7 +259,7 @@ QVariantList JitBytecode::readObjConsts( QIODevice* in, quint32 len )
             res.append(str);
         }else if( tp == BCDUMP_KGC_TAB )
         {
-            JitBytecode::LuaTable map;
+            JitBytecode::ConstTable map;
             const quint32 narray = bcread_uleb128(in);
             const quint32 nhash = bcread_uleb128(in);
             if( narray )
@@ -309,7 +309,7 @@ static QVariantList readNumConsts( QIODevice* in, quint32 len )
     return res;
 }
 
-static QVector<quint32> readLineNumbers( QIODevice* in, bool swap, int sizeli, int sizebc, int numline )
+static QVector<quint32> readLineNumbers( QIODevice* in, bool swap, int sizeli, int sizebc, int numline, int firstline )
 {
     if( sizeli == 0 )
         return QVector<quint32>();
@@ -323,7 +323,7 @@ static QVector<quint32> readLineNumbers( QIODevice* in, bool swap, int sizeli, i
     {
         // 1 byte per number
         for( int i = 0; i < sizebc; i++ )
-            lines[i] = quint8(buf[i]);
+            lines[i] = quint8(buf[i]) + firstline;
     }else if( numline < 65536 )
     {
         // 2 bytes per number
@@ -334,7 +334,7 @@ static QVector<quint32> readLineNumbers( QIODevice* in, bool swap, int sizeli, i
             memcpy( &tmp, buf.constData()+j, 2 );
             if( swap )
                 tmp = qbswap(tmp);
-            lines[i] = tmp;
+            lines[i] = tmp + firstline;
         }
     }else
     {
@@ -345,9 +345,8 @@ static QVector<quint32> readLineNumbers( QIODevice* in, bool swap, int sizeli, i
         {
             memcpy( &tmp, buf.constData()+j, 4 );
             if( swap )
-                lines[i] = qbswap(tmp);
-            else
-                lines[i] = tmp;
+                tmp = qbswap(tmp);
+            lines[i] = tmp + firstline;
         }
     }
     return lines;
@@ -417,6 +416,9 @@ bool JitBytecode::parse(const QString& file)
     if( !parseHeader(&in) )
         return false;
 
+    if( d_name.isEmpty() )
+        d_name = file;
+
     while( !in.atEnd() )
     {
         if( !parseFunction(&in) )
@@ -427,10 +429,10 @@ bool JitBytecode::parse(const QString& file)
     return true;
 }
 
-JitBytecode::Function*JitBytecode::getRoot() const
+JitBytecode::Function* JitBytecode::getRoot() const
 {
     if( d_fstack.size() == 1 )
-        return d_fstack.first();
+        return d_fstack.first().data();
     else
         return 0;
 }
@@ -443,6 +445,7 @@ JitBytecode::ByteCode JitBytecode::dissectByteCode(quint32 i)
     {
         const _ByteCode& bc = s_byteCodes[op];
         res.d_name = bc.d_op;
+        res.d_op = op;
         res.d_ta = bc.d_fa;
         res.d_tb = bc.d_fb;
         res.d_tcd = bc.d_fc;
@@ -450,7 +453,7 @@ JitBytecode::ByteCode JitBytecode::dissectByteCode(quint32 i)
             res.d_a = bc_a(i);
         if( bc.d_fb != ByteCode::Unused )
         {
-            res.d_a = bc_b(i);
+            res.d_b = bc_b(i);
             if( bc.d_fc != ByteCode::Unused )
                 res.d_cd = bc_c(i);
         }else if( bc.d_fc != ByteCode::Unused )
@@ -488,14 +491,16 @@ bool JitBytecode::parseHeader(QIODevice* in)
     return true;
 }
 
-bool JitBytecode::parseFunction(QIODevice* in)
+bool JitBytecode::parseFunction(QIODevice* in )
 {
     /* Read length. */
     quint32 len = bcread_uleb128(in);
     if (!len)
         return false;  /* EOF */
 
-    Function f;
+    FuncRef fr( new Function() );
+    Function& f = *fr.data();
+    f.d_sourceFile = d_name;
     f.d_id = d_funcs.size();
     /* Read prototype header. */
     f.d_flags = readByte(in);
@@ -520,12 +525,12 @@ bool JitBytecode::parseFunction(QIODevice* in)
     f.d_constNums = readNumConsts( in, sizekn );
 
     const quint32 sizeli = sizebc << (f.d_numline < 256 ? 0 : ( f.d_numline < 65536 ? 1 : 2 ) );
-    f.d_lines = readLineNumbers( in, swap, sizedbg ? sizeli : 0, sizebc, f.d_numline ); // empty or one line nr per byteCodes entry
+    f.d_lines = readLineNumbers( in, swap, sizedbg ? sizeli : 0, sizebc, f.d_numline, f.d_firstline ); // empty or one line nr per byteCodes entry
 
     readNames( in, sizedbg ? sizedbg - sizeli : 0, sizeuv, f.d_upNames, f.d_vars );
 
-    d_funcs.append(f);
-    d_fstack.append(&d_funcs.back());
+    d_funcs.append(fr);
+    d_fstack.push_back(fr);
     return true;
 }
 
@@ -537,6 +542,8 @@ bool JitBytecode::error(const QString& msg)
 
 uint qHash(const QVariant& v, uint seed)
 {
+    if( v.type() == QVariant::ByteArray )
+        return qHash( v.toByteArray(), seed );
     if( v.data_ptr().is_shared )
         return qHash( v.data_ptr().data.shared, seed );
     if( v.data_ptr().is_null )

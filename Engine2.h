@@ -97,8 +97,10 @@ namespace Lua
         bool pushFunction( const QByteArray& source, const QByteArray& name = QByteArray() );
         bool runFunction( int nargs = 0, int nresults = 0 ); // Stack pre: func, par1..parN; post: -
         bool isExecuting() const { return d_running; }
-        bool saveBinary( const QByteArray& source, const QByteArray& path );
+        bool saveBinary( const QByteArray& source, const QByteArray& name, const QByteArray& path );
 		static QByteArray getBinaryFromFunc(lua_State *L); // erwartet Func bei -1
+        const QByteArrayList& getReturns() const { return d_returns; }
+
 
         // Value Support
         QByteArray getTypeName(int arg) const;
@@ -158,6 +160,7 @@ namespace Lua
         DebugCommand d_dbgCmd;
         DebugCommand d_defaultDbgCmd;
 		DbgShell* d_dbgShell;
+        QByteArrayList d_returns;
         bool d_breakHit;
         bool d_debugging;
         bool d_running;

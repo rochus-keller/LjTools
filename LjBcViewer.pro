@@ -34,7 +34,8 @@ SOURCES += main.cpp\
     Engine2.cpp \
     Terminal2.cpp \
     ExpressionParser.cpp \
-    BcViewer.cpp
+    BcViewer.cpp \
+    LuaJitEngine.cpp
 
 HEADERS  += MainWindow.h \
     ../GuiTools/CodeEditor.h \
@@ -43,7 +44,8 @@ HEADERS  += MainWindow.h \
     Engine2.h \
     Terminal2.h \
     ExpressionParser.h \
-    BcViewer.h
+    BcViewer.h \
+    LuaJitEngine.h
 
 LIBS += -lluajit
 

@@ -29,6 +29,7 @@ namespace Lua
     class Engine2;
     class BcViewer;
     class Terminal2;
+    class JitEngine;
 
     class MainWindow : public QMainWindow
     {
@@ -51,6 +52,7 @@ namespace Lua
     protected slots:
         void onDump();
         void onRun();
+        void onRun2();
         void onNew();
         void onOpen();
         void onSave();
@@ -65,6 +67,7 @@ namespace Lua
         Engine2* d_lua;
         BcViewer* d_bcv;
         Terminal2* d_term;
+        JitEngine* d_eng;
         bool d_lock;
     };
 }

@@ -22,6 +22,7 @@
 #include "Engine2.h"
 #include "Terminal2.h"
 #include "BcViewer.h"
+#include "LuaJitEngine.h"
 #include <QtDebug>
 #include <QDockWidget>
 #include <QApplication>
@@ -32,8 +33,10 @@
 #include <QShortcut>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <GuiTools/AutoMenu.h>
 #include <GuiTools/CodeEditor.h>
+#include <GuiTools/AutoShortcut.h>
 using namespace Lua;
 
 static MainWindow* s_this = 0;
@@ -78,6 +81,8 @@ MainWindow::MainWindow(QWidget *parent)
     d_lua->addLibrary(Engine2::JIT);
     Engine2::setInst(d_lua);
 
+    d_eng = new JitEngine(this);
+
     d_edit = new CodeEditor(this);
     new Highlighter( d_edit->document() );
     d_edit->updateTabWidth();
@@ -107,11 +112,11 @@ MainWindow::MainWindow(QWidget *parent)
     if( !state.isNull() )
         restoreState( state.toByteArray() );
 
-    new QShortcut(tr("CTRL+Q"),this,SLOT(close()));
 
     connect(d_edit, SIGNAL(modificationChanged(bool)), this, SLOT(onCaption()) );
     connect(d_bcv,SIGNAL(sigGotoLine(int)),this,SLOT(onGotoLnr(int)));
     connect(d_edit,SIGNAL(cursorPositionChanged()),this,SLOT(onCursor()));
+    connect(d_eng,SIGNAL(sigPrint(QString,bool)), d_term, SLOT(printText(QString,bool)) );
 }
 
 MainWindow::~MainWindow()
@@ -162,13 +167,14 @@ void MainWindow::createDumpView()
 void MainWindow::createMenu()
 {
     Gui::AutoMenu* pop = new Gui::AutoMenu( d_edit, true );
-    pop->addCommand( "New", this, SLOT(onNew()), tr("CTRL+N"), true );
-    pop->addCommand( "Open...", this, SLOT(onOpen()), tr("CTRL+O"), true );
-    pop->addCommand( "Save", this, SLOT(onSave()), tr("CTRL+S"), true );
+    pop->addCommand( "New", this, SLOT(onNew()), tr("CTRL+N"), false );
+    pop->addCommand( "Open...", this, SLOT(onOpen()), tr("CTRL+O"), false );
+    pop->addCommand( "Save", this, SLOT(onSave()), tr("CTRL+S"), false );
     pop->addCommand( "Save as...", this, SLOT(onSaveAs()) );
     pop->addSeparator();
-    pop->addCommand( "Execute", this, SLOT(onRun()), tr("CTRL+E"), true );
-    pop->addCommand( "Dump", this, SLOT(onDump()), tr("CTRL+D"), true );
+    pop->addCommand( "Execute LuaJIT", this, SLOT(onRun()), tr("CTRL+E"), false );
+    pop->addCommand( "Execute test VM", this, SLOT(onRun2()), tr("CTRL+SHIFT+E"), false );
+    pop->addCommand( "Dump", this, SLOT(onDump()), tr("CTRL+D"), false );
     pop->addSeparator();
     pop->addCommand( "Undo", d_edit, SLOT(handleEditUndo()), tr("CTRL+Z"), true );
     pop->addCommand( "Redo", d_edit, SLOT(handleEditRedo()), tr("CTRL+Y"), true );
@@ -198,6 +204,15 @@ void MainWindow::createMenu()
     pop->addCommand( "Show Fullscreen", this, SLOT(onFullScreen()) );
     pop->addSeparator();
     pop->addAction(tr("Quit"),qApp,SLOT(quit()), tr("CTRL+Q") );
+
+    new QShortcut(tr("CTRL+Q"),this,SLOT(close()));
+    new Gui::AutoShortcut( tr("CTRL+O"), this, this, SLOT(onOpen()) );
+    new Gui::AutoShortcut( tr("CTRL+N"), this, this, SLOT(onNew()) );
+    new Gui::AutoShortcut( tr("CTRL+O"), this, this, SLOT(onOpen()) );
+    new Gui::AutoShortcut( tr("CTRL+S"), this, this, SLOT(onSave()) );
+    new Gui::AutoShortcut( tr("CTRL+E"), this, this, SLOT(onRun()) );
+    new Gui::AutoShortcut( tr("CTRL+SHIFT+E"), this, this, SLOT(onRun2()) );
+    new Gui::AutoShortcut( tr("CTRL+D"), this, this, SLOT(onDump()) );
 }
 
 void MainWindow::onDump()
@@ -205,7 +220,7 @@ void MainWindow::onDump()
     ENABLED_IF(true);
     QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
     const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
-    d_lua->saveBinary(d_edit->toPlainText().toUtf8(),path.toUtf8());
+    d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),path.toUtf8());
     d_bcv->loadFrom(path);
     dir.remove(path);
 }
@@ -214,6 +229,20 @@ void MainWindow::onRun()
 {
     ENABLED_IF(true);
     d_lua->executeCmd( d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8() );
+}
+
+void MainWindow::onRun2()
+{
+    ENABLED_IF(true);
+    QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
+    const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
+    d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),path.toUtf8());
+    JitBytecode bc;
+    if( bc.parse(path) )
+    {
+        d_eng->run( &bc );
+    }
+    dir.remove(path);
 }
 
 void MainWindow::onNew()
@@ -234,7 +263,8 @@ void MainWindow::onOpen()
     if( !checkSaved( tr("New File")) )
         return;
 
-    const QString fileName = QFileDialog::getOpenFileName(this, tr("Open File"), QString(),
+    const QString fileName = QFileDialog::getOpenFileName(this, tr("Open File"),
+                                                          QFileInfo(d_edit->getPath()).absolutePath(),
                                                           tr("*.lua") );
     if (fileName.isEmpty())
         return;
@@ -257,11 +287,15 @@ void MainWindow::onSaveAs()
 {
     ENABLED_IF(true);
 
-    const QString fileName = QFileDialog::getSaveFileName(this, tr("Save File"), QString(),
+    QString fileName = QFileDialog::getSaveFileName(this, tr("Save File"),
+                                                          QFileInfo(d_edit->getPath()).absolutePath(),
                                                           tr("*.lua") );
 
     if (fileName.isEmpty())
         return;
+
+    if( !fileName.endsWith(".lua",Qt::CaseInsensitive ) )
+        fileName += ".lua";
 
     d_edit->saveToFile(fileName);
     onCaption();

@@ -1,6 +1,6 @@
-This is a parser and browser for LuaJIT 2.0 bytecode written in C++ and Qt. See http://luajit.org/ for more information about LuaJIT. 
+This is a parser, browser and test VM for LuaJIT 2.0 bytecode written in C++ and Qt. See http://luajit.org/ for more information about LuaJIT. 
 
-The goal of this project is to better understand how LuaJIT works. The viewer can be used to edit and compile Lua code and display it side by side with its corresponding LuaJIT bytecode. More to come.
+The goal of this project is to better understand how LuaJIT works. The viewer can be used to edit and compile Lua code and display it side by side with its corresponding LuaJIT bytecode. The test VM implements a subset of LuaJIT bytecodes to study and validate their functions (see the examples subfolder).
 
 
 ![LjBcViewer Screenshot](http://software.rochus-keller.info/LjBcViewer_screenshot_1.png)

@@ -12,7 +12,7 @@ BcViewer::BcViewer(QWidget *parent) : QTreeWidget(parent)
     setAlternatingRowColors(true);
     setColumnCount(6);
     setExpandsOnDoubleClick(false);
-    setHeaderLabels( QStringList() << "what" << "idx" << "lnr/pc" << "lnr/pc/A" << "pars/B" << "frms/C");
+    setHeaderLabels( QStringList() << "what" << "idx" << "lnr/pc" << "lnr/pc/A" << "pars/B" << "frms/C/D");
     header()->setStretchLastSection(false);
     header()->setSectionResizeMode(0,QHeaderView::Stretch);
     header()->setSectionResizeMode(1,QHeaderView::ResizeToContents);
@@ -36,7 +36,7 @@ bool BcViewer::loadFrom(const QString& path)
 
 #ifdef LINEAR
     for( int i = 0; i < bc.getFuncs().size(); i++ )
-        addFunc( &bc.getFuncs()[i] );
+        addFunc( bc.getFuncs()[i].data() );
 #else
     const JitBytecode::Function* root = bc.getRoot();
     if( root )
@@ -135,9 +135,9 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
         for( int j = 0; j < f.d_constObjs.size(); j++ )
         {
             QTreeWidgetItem* ci = 0;
-            if( f.d_constObjs[j].canConvert<JitBytecode::Function*>() )
+            if( f.d_constObjs[j].canConvert<JitBytecode::FuncRef>() )
             {
-                JitBytecode::Function* fp = f.d_constObjs[j].value<JitBytecode::Function*>();
+                JitBytecode::FuncRef fp = f.d_constObjs[j].value<JitBytecode::FuncRef>();
 #ifdef LINEAR
                 ci = new QTreeWidgetItem(t,LnrType);
                 ci->setText(0,tr("function %1").arg(fp->d_id));
@@ -146,7 +146,7 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
 #else
                 ci = addFunc(fp,t);
 #endif
-            }else if( f.d_constObjs[j].canConvert<JitBytecode::LuaTable>() )
+            }else if( f.d_constObjs[j].canConvert<JitBytecode::ConstTable>() )
             {
                 ci = new QTreeWidgetItem(t);
                 ci->setText(0,tr("table"));
@@ -226,7 +226,7 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
             if( !f.d_lines.isEmpty() )
             {
                 Q_ASSERT( f.d_byteCodes.size() == f.d_lines.size() );
-                ci->setText(2,QString::number(f.d_firstline+f.d_lines[j]));
+                ci->setText(2,QString::number(f.d_lines[j]));
             }
             if( bc.d_ta != JitBytecode::ByteCode::Unused )
                 ci->setText(3,QString("%1(%2)").arg(JitBytecode::ByteCode::s_typeName[bc.d_ta]).arg(bc.d_a));

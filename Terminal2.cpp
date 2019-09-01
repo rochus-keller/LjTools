@@ -276,6 +276,10 @@ void Terminal2::onNotify(int messageType, QByteArray val1, int val2)
 			d_line.clear();
         }
         break;
+    case Engine2::Finished:
+        foreach(const QByteArray& res, d_lua->getReturns() )
+            printText(res);
+        break;
     default:
         break;
     }
