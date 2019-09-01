@@ -126,7 +126,7 @@ namespace Lua
         bool parseHeader(QIODevice* );
         bool parseFunction(QIODevice* );
         bool error( const QString& );
-        QVariantList readObjConsts( QIODevice* in, quint32 len );
+        QVariantList readObjConsts(QIODevice* in, quint32 len );
     private:
         QString d_name;
         QList<FuncRef> d_funcs;

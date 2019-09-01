@@ -264,12 +264,12 @@ QVariantList JitBytecode::readObjConsts( QIODevice* in, quint32 len )
             const quint32 nhash = bcread_uleb128(in);
             if( narray )
             {
-                for (i = 0; i < narray; i++)
+                for (int j = 0; j < narray; j++)
                   map.d_array << bcread_ktabk(in);
             }
             if( nhash )
             {
-                for (i = 0; i < nhash; i++)
+                for ( int j = 0; j < nhash; j++)
                   map.d_hash.insert( bcread_ktabk(in), bcread_ktabk(in) );
             }
             res.append( QVariant::fromValue(map) );
@@ -313,11 +313,19 @@ static QVector<quint32> readLineNumbers( QIODevice* in, bool swap, int sizeli, i
 {
     if( sizeli == 0 )
         return QVector<quint32>();
-    QVector<quint32> lines( sizebc ); // empty or one line nr per byteCodes entry
 
     const QByteArray buf = in->read(sizeli);
     // buf contains a line number per bytecode encoded in 1, 2 or 4 bytes depending on line count,
     // and then other stuff
+    if( buf.isEmpty() )
+        return QVector<quint32>();
+    if( buf.size() < sizeli )
+    {
+        qCritical() << "chunk too short";
+        return QVector<quint32>();
+    }
+
+    QVector<quint32> lines( sizebc ); // empty or one line nr per byteCodes entry
 
     if( numline < 256 )
     {
@@ -376,7 +384,7 @@ static void readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& ups, Q
     quint32 lastpc = 0;
     while( true )
     {
-        if( tmp[pos] == 0 )
+        if( tmp.isEmpty() || tmp[pos] == 0 )
             break;
         JitBytecode::Function::Var var;
         if( tmp[pos] > VARNAME__MAX )

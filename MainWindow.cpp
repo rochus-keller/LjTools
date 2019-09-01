@@ -79,6 +79,7 @@ MainWindow::MainWindow(QWidget *parent)
     d_lua->addLibrary(Engine2::DBG);
     d_lua->addLibrary(Engine2::BIT);
     d_lua->addLibrary(Engine2::JIT);
+    d_lua->addLibrary(Engine2::OS);
     Engine2::setInst(d_lua);
 
     d_eng = new JitEngine(this);
@@ -175,6 +176,7 @@ void MainWindow::createMenu()
     pop->addCommand( "Execute LuaJIT", this, SLOT(onRun()), tr("CTRL+E"), false );
     pop->addCommand( "Execute test VM", this, SLOT(onRun2()), tr("CTRL+SHIFT+E"), false );
     pop->addCommand( "Dump", this, SLOT(onDump()), tr("CTRL+D"), false );
+    pop->addCommand( "Export binary...", this, SLOT(onExport()) );
     pop->addSeparator();
     pop->addCommand( "Undo", d_edit, SLOT(handleEditUndo()), tr("CTRL+Z"), true );
     pop->addCommand( "Redo", d_edit, SLOT(handleEditRedo()), tr("CTRL+Y"), true );
@@ -183,8 +185,8 @@ void MainWindow::createMenu()
     pop->addCommand( "Copy", d_edit, SLOT(handleEditCopy()), tr("CTRL+C"), true );
     pop->addCommand( "Paste", d_edit, SLOT(handleEditPaste()), tr("CTRL+V"), true );
     pop->addSeparator();
-    pop->addCommand( "Find...", d_edit, SLOT(handleFind()), tr("CTRL+F") );
-    pop->addCommand( "Find again", d_edit, SLOT(handleFindAgain()), tr("F3") );
+    pop->addCommand( "Find...", d_edit, SLOT(handleFind()), tr("CTRL+F"), true );
+    pop->addCommand( "Find again", d_edit, SLOT(handleFindAgain()), tr("F3"), true );
     pop->addCommand( "Replace...", d_edit, SLOT(handleReplace()), tr("CTRL+R"), true );
     pop->addSeparator();
     pop->addCommand( "&Goto...", d_edit, SLOT(handleGoto()), tr("CTRL+G"), true );
@@ -347,6 +349,21 @@ void MainWindow::onCursor()
     const int line = cur.blockNumber() + 1;
     d_bcv->gotoLine(line);
     d_lock = false;
+}
+
+void MainWindow::onExport()
+{
+    ENABLED_IF(true);
+    QString fileName = QFileDialog::getSaveFileName(this, tr("Save Binary"),
+                                                          d_edit->getPath(),
+                                                          tr("*.bc") );
+
+    if (fileName.isEmpty())
+        return;
+
+    if( !fileName.endsWith(".bc",Qt::CaseInsensitive ) )
+        fileName += ".bc";
+    d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),fileName.toUtf8());
 }
 
 bool MainWindow::checkSaved(const QString& title)
