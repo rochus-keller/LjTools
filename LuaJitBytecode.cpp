@@ -550,11 +550,54 @@ bool JitBytecode::error(const QString& msg)
 
 uint qHash(const QVariant& v, uint seed)
 {
-    if( v.type() == QVariant::ByteArray )
+    switch( v.type() )
+    {
+    case QVariant::ByteArray:
         return qHash( v.toByteArray(), seed );
-    if( v.data_ptr().is_shared )
-        return qHash( v.data_ptr().data.shared, seed );
-    if( v.data_ptr().is_null )
+    case QVariant::Bool:
+    case QVariant::UInt:
+    case QVariant::ULongLong:
+        return qHash( v.toULongLong());
+    case QVariant::Int:
+    case QVariant::LongLong:
+        return qHash( v.toLongLong());
+    case QVariant::Double:
+        return qHash( v.toDouble() );
+    default:
+        break;
+    }
+    const QVariant::DataPtr& d = v.data_ptr();
+    if( d.is_shared )
+        return qHash( d.data.shared, seed );
+    if( d.is_null )
         return qHash( 0, seed );
-    return qHash( v.data_ptr().data.ull, seed );
+    return qHash( d.data.ull, seed );
+}
+
+QHash<QVariant, QVariant> JitBytecode::ConstTable::merged() const
+{
+    QHash<QVariant,QVariant> res = d_hash;
+    for( int i = 1; i < d_array.size(); i++ ) // LJ includes index 0 with nil value in BCDUMP_KGC_TAB
+        res.insert( i, d_array[i] );
+    return res;
+}
+
+bool JitBytecode::isNumber(const QVariant& v)
+{
+    switch( v.type() )
+    {
+    case QVariant::UInt:
+    case QVariant::ULongLong:
+    case QVariant::Int:
+    case QVariant::LongLong:
+    case QVariant::Double:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool JitBytecode::isString(const QVariant& v)
+{
+    return v.type() == QVariant::String || v.type() == QVariant::ByteArray;
 }

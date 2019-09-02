@@ -128,6 +128,7 @@ MainWindow::~MainWindow()
 void MainWindow::loadFile(const QString& path)
 {
     d_edit->loadFromFile(path);
+    QDir::setCurrent(QFileInfo(path).absolutePath());
     onCaption();
 }
 
@@ -265,11 +266,12 @@ void MainWindow::onOpen()
     if( !checkSaved( tr("New File")) )
         return;
 
-    const QString fileName = QFileDialog::getOpenFileName(this, tr("Open File"),
-                                                          QFileInfo(d_edit->getPath()).absolutePath(),
+    const QString fileName = QFileDialog::getOpenFileName(this, tr("Open File"),QString(),
                                                           tr("*.lua") );
     if (fileName.isEmpty())
         return;
+
+    QDir::setCurrent(QFileInfo(fileName).absolutePath());
 
     d_edit->loadFromFile(fileName);
     onCaption();
@@ -295,6 +297,8 @@ void MainWindow::onSaveAs()
 
     if (fileName.isEmpty())
         return;
+
+    QDir::setCurrent(QFileInfo(fileName).absolutePath());
 
     if( !fileName.endsWith(".lua",Qt::CaseInsensitive ) )
         fileName += ".lua";
@@ -361,6 +365,8 @@ void MainWindow::onExport()
     if (fileName.isEmpty())
         return;
 
+    QDir::setCurrent(QFileInfo(fileName).absolutePath());
+
     if( !fileName.endsWith(".bc",Qt::CaseInsensitive ) )
         fileName += ".bc";
     d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),fileName.toUtf8());
@@ -381,6 +387,7 @@ bool MainWindow::checkSaved(const QString& title)
                 const QString path = QFileDialog::getSaveFileName( this, title, QString(), "*.lua" );
                 if( path.isEmpty() )
                     return false;
+                QDir::setCurrent(QFileInfo(path).absolutePath());
                 return d_edit->saveToFile(path);
             }
             break;

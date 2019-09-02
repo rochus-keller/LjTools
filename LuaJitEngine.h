@@ -35,11 +35,12 @@ namespace Lua
     {
         Q_OBJECT
     public:
-        class Table : public QHash<QVariant,QVariant>
+        class Table
         {
         public:
             static Table* create() { return new Table(); }
             QVariant d_metaTable;
+            QHash<QVariant,QVariant> d_hash;
        private:
             friend class JitEngine;
             Table():d_marked(false)
@@ -142,6 +143,9 @@ namespace Lua
         QVariant getNumConst( const Frame& f, int i ) const;
         QVariant getGcConst( const Frame& f, int i ) const;
         QVariant getPriConst(int i );
+        bool doCompare( Frame&, const JitBytecode::ByteCode& bc );
+        bool doEquality( Frame&, const JitBytecode::ByteCode& bc );
+        bool doJumpAfterCompare(Frame&, bool res );
 
         static int _print(JitEngine*,  QVariantList& inout );
         static QByteArray tostring( const QVariant& v );

@@ -52,7 +52,7 @@ bool JitEngine::run(JitBytecode* bc)
     if( res )
     {
         foreach( const QVariant& v, vl )
-            qDebug() << "Result:" << v;
+            emit sigPrint( tostring(v) );
     }
     return res;
 }
@@ -222,6 +222,154 @@ QByteArray JitEngine::tostring(const QVariant& v)
         return v.toByteArray();
 }
 
+bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::ByteCode& bc)
+{
+    const QVariant lhs = getSlot(f, bc.d_a );
+    const QVariant rhs = getSlot(f, bc.getCd() );
+    bool res = false;
+    if( JitBytecode::isNumber( lhs ) && JitBytecode::isNumber( rhs ) )
+    {
+        switch( bc.d_op )
+        {
+        case BC_ISLT:
+            res = lhs.toDouble() < rhs.toDouble();
+            break;
+        case BC_ISGE:
+            res = lhs.toDouble() >= rhs.toDouble();
+            break;
+        case BC_ISLE:
+            res = lhs.toDouble() <= rhs.toDouble();
+            break;
+        case BC_ISGT:
+            res = lhs.toDouble() > rhs.toDouble();
+            break;
+        default:
+            break;
+        }
+    }else if( JitBytecode::isString( lhs ) && JitBytecode::isString( rhs ) )
+    {
+        switch( bc.d_op )
+        {
+        case BC_ISLT:
+            res = lhs.toByteArray() < rhs.toByteArray();
+            break;
+        case BC_ISGE:
+            res = lhs.toByteArray() >= rhs.toByteArray();
+            break;
+        case BC_ISLE:
+            res = lhs.toByteArray() <= rhs.toByteArray();
+            break;
+        case BC_ISGT:
+            res = lhs.toByteArray() > rhs.toByteArray();
+            break;
+        default:
+            break;
+        }
+    }else
+        return error2(f, "incompatible types for comparison");
+
+    return doJumpAfterCompare(f, res);
+}
+
+bool JitEngine::doEquality(JitEngine::Frame& f, const JitBytecode::ByteCode& bc)
+{
+    const QVariant lhs = getSlot(f, bc.d_a );
+    QVariant rhs;
+    switch( bc.d_op )
+    {
+    case BC_ISEQV:
+    case BC_ISNEV:
+        rhs = getSlot(f, bc.getCd() );
+        break;
+    case BC_ISEQS:
+    case BC_ISNES:
+        rhs = getGcConst( f, bc.getCd() );
+        break;
+    case BC_ISEQN:
+    case BC_ISNEN:
+        rhs = getNumConst( f, bc.getCd() );
+        break;
+    case BC_ISEQP:
+    case BC_ISNEP:
+        rhs = getPriConst( bc.getCd() );
+        break;
+    }
+    bool res = false;
+    if( JitBytecode::isNumber( lhs ) && JitBytecode::isNumber( rhs ) ||
+            JitBytecode::isString( lhs ) && JitBytecode::isString( rhs ) )
+    {
+        switch( bc.d_op )
+        {
+        case BC_ISEQV:
+        case BC_ISEQS:
+        case BC_ISEQN:
+        case BC_ISEQP:
+            res = lhs.toByteArray() == rhs.toByteArray();
+            break;
+        default:
+            res = lhs.toByteArray() != rhs.toByteArray();
+            break;
+        }
+    }else if( lhs.canConvert<TableRef>() && rhs.canConvert<TableRef>() )
+    {
+        switch( bc.d_op )
+        {
+        case BC_ISEQV:
+        case BC_ISEQS:
+        case BC_ISEQN:
+        case BC_ISEQP:
+            res = lhs.value<TableRef>().deref() == rhs.value<TableRef>().deref();
+            break;
+        default:
+            res = lhs.value<TableRef>().deref() != rhs.value<TableRef>().deref();
+            break;
+        }
+    }else if( lhs.canConvert<Closure>() && rhs.canConvert<Closure>() )
+    {
+        switch( bc.d_op )
+        {
+        case BC_ISEQV:
+        case BC_ISEQS:
+        case BC_ISEQN:
+        case BC_ISEQP:
+            res = lhs.value<Closure>().d_func.data() == rhs.value<Closure>().d_func.data();
+            break;
+        default:
+            res = lhs.value<Closure>().d_func.data() != rhs.value<Closure>().d_func.data();
+            break;
+        }
+    }else if( lhs.canConvert<CFunction>() && rhs.canConvert<CFunction>() )
+    {
+        switch( bc.d_op )
+        {
+        case BC_ISEQV:
+        case BC_ISEQS:
+        case BC_ISEQN:
+        case BC_ISEQP:
+            res = lhs.value<CFunction>().d_func == rhs.value<CFunction>().d_func;
+            break;
+        default:
+            res = lhs.value<CFunction>().d_func != rhs.value<CFunction>().d_func;
+            break;
+        }
+    } // else res = false;
+    return doJumpAfterCompare(f, res);
+}
+
+bool JitEngine::doJumpAfterCompare(JitEngine::Frame& f, bool res)
+{
+    f.d_pc++;
+    if( f.d_pc >= f.d_func->d_func->d_byteCodes.size() )
+        return true; // handle error in main loop
+    JitBytecode::ByteCode bc = JitBytecode::dissectByteCode(f.d_func->d_func->d_byteCodes[f.d_pc]);
+    if( bc.d_op != BC_JMP )
+        return error2(f, "comparison op must be followed by JMP");
+    f.d_pc++; // relative to next instruction
+    if( res )
+        f.d_pc += bc.getCd();
+    return true;
+}
+
 bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
 {
     Q_ASSERT( c != 0 );
@@ -240,6 +388,31 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
         JitBytecode::ByteCode bc = JitBytecode::dissectByteCode(c->d_func->d_byteCodes[f.d_pc]);
         switch( bc.d_op )
         {
+        // Comparison ops (fully implemented) **********************************
+        case BC_ISLT:
+        case BC_ISGE:
+        case BC_ISLE:
+        case BC_ISGT:
+            if( !doCompare(f, bc ) )
+                return false;
+            break;
+        case BC_ISEQV:
+        case BC_ISNEV:
+        case BC_ISEQS:
+        case BC_ISNES:
+        case BC_ISEQN:
+        case BC_ISNEN:
+        case BC_ISEQP:
+        case BC_ISNEP:
+            if( !doEquality(f, bc ) )
+                return false;
+            break;
+
+        // Loops and branches **********************************
+        case BC_JMP:
+            f.d_pc += bc.getCd() + 1; // relative to next instruction
+            break;
+
         // Returns, good exits **********************************
         case BC_RET0:
             inout.clear();
@@ -253,8 +426,9 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             for( int i = bc.d_a; i < ( bc.d_a + bc.getCd() - 2 ); i++ )
                 inout.append( getSlot( f, i ) );
             return true;
+            // Pending: RETM
 
-        // Unary ops
+        // Unary ops (fully implemented) **********************************
         case BC_MOV:
             setSlot(f, bc.d_a, getSlot( f, bc.getCd() ) );
             f.d_pc++;
@@ -273,7 +447,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 if( v.type() == QVariant::ByteArray )
                     setSlot(f, bc.d_a, v.toByteArray().size() );
                 else if( v.canConvert<TableRef>() )
-                    setSlot(f, bc.d_a, v.value<TableRef>().deref()->size() ); // TODO: may be wrong
+                    setSlot(f, bc.d_a, v.value<TableRef>().deref()->d_hash.size() ); // TODO: may be wrong
                 else
                     return error2(f,tr("invalid application of LEN").arg(bc.getCd()) );
                 f.d_pc++;
@@ -281,7 +455,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             break;
 
 
-        // Binary Ops **********************************
+        // Binary Ops (fully implemented) **********************************
         case BC_ADDVN:
             setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() + getNumConst( f, bc.getCd() ).toDouble() );
             f.d_pc++;
@@ -369,6 +543,20 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             setSlot(f, bc.d_a, getGcConst(f,bc.getCd()));
             f.d_pc++;
             break;
+        case BC_KNUM:
+            setSlot(f, bc.d_a, getNumConst(f,bc.getCd()));
+            f.d_pc++;
+            break;
+        case BC_KPRI:
+            setSlot(f, bc.d_a, getPriConst(bc.getCd()));
+            f.d_pc++;
+            break;
+        case BC_KNIL:
+            for( int i = bc.d_a; i <= bc.getCd(); i++ )
+                setSlot(f, i, QVariant() );
+            f.d_pc++;
+            break;
+            // TODO: what is KCDATA for?
 
         // Table Ops **********************************
         case BC_GSET:
@@ -388,7 +576,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                setSlot(f,bc.d_a, t.deref()->value(getSlot(f,bc.getCd()) ) );
+                setSlot(f,bc.d_a, t.deref()->d_hash.value(getSlot(f,bc.getCd()) ) );
                 f.d_pc++;
             }
             break;
@@ -397,7 +585,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                setSlot(f,bc.d_a, t.deref()->value(getGcConst(f,bc.getCd()) ) );
+                setSlot(f,bc.d_a, t.deref()->d_hash.value(getGcConst(f,bc.getCd()) ) );
                 f.d_pc++;
             }
             break;
@@ -406,15 +594,16 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                setSlot(f,bc.d_a, t.deref()->value(bc.getCd()) );
+                setSlot(f,bc.d_a, t.deref()->d_hash.value(bc.getCd()) );
                 f.d_pc++;
             }
+            break;
         case BC_TSETV:
             {
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                t.deref()->insert( getSlot(f,bc.getCd()), getSlot(f,bc.d_a) );
+                t.deref()->d_hash.insert( getSlot(f,bc.getCd()), getSlot(f,bc.d_a) );
                 f.d_pc++;
             }
             break;
@@ -423,7 +612,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                t.deref()->insert( getGcConst(f,bc.getCd()), getSlot(f,bc.d_a) );
+                t.deref()->d_hash.insert( getGcConst(f,bc.getCd()), getSlot(f,bc.d_a) );
                 f.d_pc++;
             }
             break;
@@ -432,12 +621,24 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                t.deref()->insert( bc.getCd(), getSlot(f,bc.d_a) );
+                t.deref()->d_hash.insert( bc.getCd(), getSlot(f,bc.d_a) );
                 f.d_pc++;
             }
             break;
+        case BC_TDUP:
+            {
+                TableRef t(new Table() );
+                const QVariant v = getGcConst( f, bc.getCd() );
+                if( !v.canConvert<JitBytecode::ConstTable>() )
+                    return error2(f,"");
+                t.deref()->d_hash = v.value<JitBytecode::ConstTable>().merged();
+                setSlot(f, bc.d_a, QVariant::fromValue( t ) );
+                f.d_pc++;
+            }
+            break;
+            // Pending: TSETM
 
-        // Upvalue and Function ops **********************************
+        // Upvalue and Function ops (fully implemented) **********************************
         case BC_UGET:
             setSlot(f, bc.d_a, getUpvalue( f, bc.getCd() ) );
             f.d_pc++;
@@ -528,6 +729,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 f.d_pc++;
             }
             break;
+            // Pending: CALLM, CALLMT, CALLT, ITERC, ITERN, VARG, ISNEXT
 
         // Bad exit **********************************
         default:

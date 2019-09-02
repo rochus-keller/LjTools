@@ -39,6 +39,7 @@ namespace Lua
         {
             QHash<QVariant,QVariant> d_hash;
             QVector<QVariant> d_array;
+            QHash<QVariant,QVariant> merged() const;
         };
 
         struct Function : public QSharedData
@@ -122,6 +123,8 @@ namespace Lua
         const QList<FuncRef>& getFuncs() const { return d_funcs; }
         Function* getRoot() const;
         static ByteCode dissectByteCode(quint32);
+        static bool isNumber( const QVariant& );
+        static bool isString( const QVariant& );
     protected:
         bool parseHeader(QIODevice* );
         bool parseFunction(QIODevice* );
