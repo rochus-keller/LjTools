@@ -126,6 +126,7 @@ namespace Lua
         struct Frame
         {
             Frame(Frame* outer = 0, Closure* f = 0):d_pc(0),d_func(f),d_outer(outer){}
+            void dump();
 
             Frame* d_outer;
             Closure* d_func;
@@ -135,9 +136,10 @@ namespace Lua
 
         bool run(Frame* outer, Closure*, QVariantList& inout );
         bool error2(const Frame&, const QString& msg ) const;
-        QVariant getSlot( const Frame&, int i ) const;
+        Slot* getSlot(const Frame&, int i) const;
+        QVariant getSlotVal( const Frame&, int i ) const;
         TableRef getTable( const Frame&, int i ) const;
-        void setSlot(const Frame&, int i, const QVariant& );
+        void setSlotVal(const Frame&, int i, const QVariant& );
         QVariant getUpvalue( const Frame&, int i ) const;
         void setUpvalue(const Frame&, int i, const QVariant& );
         QVariant getNumConst( const Frame& f, int i ) const;
@@ -149,6 +151,7 @@ namespace Lua
 
         static int _print(JitEngine*,  QVariantList& inout );
         static QByteArray tostring( const QVariant& v );
+        static bool isTrue( const QVariant& );
     private:
         QHash<QVariant,QVariant> d_globals;
         Frame d_root;

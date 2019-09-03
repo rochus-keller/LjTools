@@ -108,20 +108,29 @@ bool JitEngine::error2( const Frame& f, const QString& msg ) const
         return error( QString("%1:%2:%3: %4").arg(info.fileName()).arg(f.d_func->d_func->d_id).arg(f.d_pc).arg(msg) );
 }
 
-QVariant JitEngine::getSlot(const JitEngine::Frame& f, int i) const
+JitEngine::Slot*JitEngine::getSlot(const JitEngine::Frame& f, int i) const
 {
     if( i < f.d_slots.size() )
-        return f.d_slots[i]->d_val;
+        return f.d_slots[i].data();
     else
     {
         error2( f, tr("accessing invalid slot number %1").arg(i));
-        return QVariant();
+        return 0;
     }
+}
+
+QVariant JitEngine::getSlotVal(const JitEngine::Frame& f, int i) const
+{
+    Slot* s = getSlot(f,i);
+    if( s )
+        return s->d_val;
+    else
+        return QVariant();
 }
 
 JitEngine::TableRef JitEngine::getTable(const Frame& f, int i) const
 {
-    const QVariant v = getSlot(f, i);
+    const QVariant v = getSlotVal(f, i);
     if( !v.canConvert<TableRef>() )
     {
         error2(f,"not a table reference");
@@ -130,13 +139,11 @@ JitEngine::TableRef JitEngine::getTable(const Frame& f, int i) const
         return v.value<TableRef>();
 }
 
-void JitEngine::setSlot(const JitEngine::Frame& f, int i, const QVariant& v)
+void JitEngine::setSlotVal(const JitEngine::Frame& f, int i, const QVariant& v)
 {
-    if( i < f.d_slots.size() )
-    {
-        f.d_slots[i]->d_val = v;
-    }else
-        error2( f, tr("accessing invalid slot number %1").arg(i));
+    Slot* s = getSlot(f,i);
+    if( s )
+        s->d_val = v;
 }
 
 QVariant JitEngine::getUpvalue(const JitEngine::Frame& f, int i) const
@@ -222,10 +229,15 @@ QByteArray JitEngine::tostring(const QVariant& v)
         return v.toByteArray();
 }
 
+bool JitEngine::isTrue(const QVariant& v)
+{
+    return !v.isNull() && !( v.type() == QVariant::Bool && v.toBool() == false );
+}
+
 bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::ByteCode& bc)
 {
-    const QVariant lhs = getSlot(f, bc.d_a );
-    const QVariant rhs = getSlot(f, bc.getCd() );
+    const QVariant lhs = getSlotVal(f, bc.d_a );
+    const QVariant rhs = getSlotVal(f, bc.getCd() );
     bool res = false;
     if( JitBytecode::isNumber( lhs ) && JitBytecode::isNumber( rhs ) )
     {
@@ -273,13 +285,13 @@ bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::ByteCode& bc)
 
 bool JitEngine::doEquality(JitEngine::Frame& f, const JitBytecode::ByteCode& bc)
 {
-    const QVariant lhs = getSlot(f, bc.d_a );
+    const QVariant lhs = getSlotVal(f, bc.d_a );
     QVariant rhs;
     switch( bc.d_op )
     {
     case BC_ISEQV:
     case BC_ISNEV:
-        rhs = getSlot(f, bc.getCd() );
+        rhs = getSlotVal(f, bc.getCd() );
         break;
     case BC_ISEQS:
     case BC_ISNES:
@@ -383,6 +395,8 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
 
     while( true )
     {
+        // see http://wiki.luajit.org/Bytecode-2.0
+
         if( f.d_pc >= c->d_func->d_byteCodes.size() )
             return error2(f,"pc points out of bytecode");
         JitBytecode::ByteCode bc = JitBytecode::dissectByteCode(c->d_func->d_byteCodes[f.d_pc]);
@@ -412,6 +426,49 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
         case BC_JMP:
             f.d_pc += bc.getCd() + 1; // relative to next instruction
             break;
+        case BC_FORI:
+            {
+                const quint32 index = getSlotVal(f,bc.d_a).toUInt();
+                const quint32 max = getSlotVal(f,bc.d_a+1).toUInt();
+                setSlotVal(f,bc.d_a+3,index);
+                f.d_pc++;
+                if( index > max )
+                    f.d_pc += bc.getCd();
+            }
+            break;
+        case BC_FORL:
+            {
+                Slot* index = getSlot(f,bc.d_a);
+                const quint32 step = getSlotVal(f,bc.d_a+2).toUInt();
+                index->d_val = index->d_val.toUInt() + step;
+                f.d_pc += bc.getCd();
+            }
+            break;
+        case BC_LOOP:
+            f.d_pc++;
+            break;
+            // Pending: ITERL
+
+        // Unary Test and Copy ops (fully implemented) **********************************
+        case BC_ISTC:
+        case BC_ISFC:
+            {
+                const QVariant d = getSlotVal(f,bc.getCd());
+                if( ( bc.d_op == BC_ISTC && isTrue(d) ) || !isTrue(d) )
+                {
+                    setSlotVal(f,bc.d_a,d);
+                    doJumpAfterCompare(f,true);
+                }else
+                    f.d_pc++;
+            }
+            break;
+        case BC_IST:
+        case BC_ISF:
+            {
+                const QVariant d = getSlotVal(f,bc.getCd());
+                doJumpAfterCompare(f, ( bc.d_op == BC_IST && isTrue(d) ) || !isTrue(d) );
+            }
+            break;
 
         // Returns, good exits **********************************
         case BC_RET0:
@@ -419,108 +476,107 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             return true;
         case BC_RET1:
             inout.clear();
-            inout.append( getSlot( f, bc.d_a ) );
+            inout.append( getSlotVal( f, bc.d_a ) );
             return true;
         case BC_RET:
             inout.clear();
             for( int i = bc.d_a; i < ( bc.d_a + bc.getCd() - 2 ); i++ )
-                inout.append( getSlot( f, i ) );
+                inout.append( getSlotVal( f, i ) );
             return true;
             // Pending: RETM
 
         // Unary ops (fully implemented) **********************************
         case BC_MOV:
-            setSlot(f, bc.d_a, getSlot( f, bc.getCd() ) );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.getCd() ) );
             f.d_pc++;
             break;
         case BC_NOT:
-            setSlot(f, bc.d_a, !getSlot( f, bc.getCd() ).toBool() );
+            setSlotVal(f, bc.d_a, !getSlotVal( f, bc.getCd() ).toBool() );
             f.d_pc++;
             break;
         case BC_UNM:
-            setSlot(f, bc.d_a, -getSlot( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, -getSlotVal( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_LEN:
             {
-                const QVariant v = getSlot( f, bc.getCd() );
+                const QVariant v = getSlotVal( f, bc.getCd() );
                 if( v.type() == QVariant::ByteArray )
-                    setSlot(f, bc.d_a, v.toByteArray().size() );
+                    setSlotVal(f, bc.d_a, v.toByteArray().size() );
                 else if( v.canConvert<TableRef>() )
-                    setSlot(f, bc.d_a, v.value<TableRef>().deref()->d_hash.size() ); // TODO: may be wrong
+                    setSlotVal(f, bc.d_a, v.value<TableRef>().deref()->d_hash.size() ); // TODO: may be wrong
                 else
                     return error2(f,tr("invalid application of LEN").arg(bc.getCd()) );
                 f.d_pc++;
             }
             break;
 
-
         // Binary Ops (fully implemented) **********************************
         case BC_ADDVN:
-            setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() + getNumConst( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() + getNumConst( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_SUBVN:
-            setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() - getNumConst( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() - getNumConst( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_MULVN:
-            setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() * getNumConst( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() * getNumConst( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_DIVVN:
-            setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() / getNumConst( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() / getNumConst( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_MODVN:
-            setSlot(f, bc.d_a, std::fmod(getSlot( f, bc.d_b ).toDouble(), getNumConst( f, bc.getCd() ).toDouble()) );
+            setSlotVal(f, bc.d_a, std::fmod(getSlotVal( f, bc.d_b ).toDouble(), getNumConst( f, bc.getCd() ).toDouble()) );
             f.d_pc++;
             break;
 
         case BC_ADDNV:
-            setSlot(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() + getSlot( f, bc.d_b ).toDouble() );
+            setSlotVal(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() + getSlotVal( f, bc.d_b ).toDouble() );
             f.d_pc++;
             break;
         case BC_SUBNV:
-            setSlot(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() - getSlot( f, bc.d_b ).toDouble() );
+            setSlotVal(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() - getSlotVal( f, bc.d_b ).toDouble() );
             f.d_pc++;
             break;
         case BC_MULNV:
-            setSlot(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() * getSlot( f, bc.d_b ).toDouble() );
+            setSlotVal(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() * getSlotVal( f, bc.d_b ).toDouble() );
             f.d_pc++;
             break;
         case BC_DIVNV:
-            setSlot(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() / getSlot( f, bc.d_b ).toDouble() );
+            setSlotVal(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() / getSlotVal( f, bc.d_b ).toDouble() );
             f.d_pc++;
             break;
         case BC_MODNV:
-            setSlot(f, bc.d_a, std::fmod(getNumConst( f, bc.getCd() ).toDouble(), getSlot( f, bc.d_b ).toDouble()) );
+            setSlotVal(f, bc.d_a, std::fmod(getNumConst( f, bc.getCd() ).toDouble(), getSlotVal( f, bc.d_b ).toDouble()) );
             f.d_pc++;
             break;
 
         case BC_ADDVV:
-            setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() + getSlot( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() + getSlotVal( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_SUBVV:
-            setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() - getSlot( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() - getSlotVal( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_MULVV:
-            setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() * getSlot( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() * getSlotVal( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_DIVVV:
-            setSlot(f, bc.d_a, getSlot( f, bc.d_b ).toDouble() / getSlot( f, bc.getCd() ).toDouble() );
+            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() / getSlotVal( f, bc.getCd() ).toDouble() );
             f.d_pc++;
             break;
         case BC_MODVV:
-            setSlot(f, bc.d_a, std::fmod( getSlot( f, bc.d_b ).toDouble(), getSlot( f, bc.getCd() ).toDouble() ) );
+            setSlotVal(f, bc.d_a, std::fmod( getSlotVal( f, bc.d_b ).toDouble(), getSlotVal( f, bc.getCd() ).toDouble() ) );
             f.d_pc++;
             break;
 
         case BC_POW:
-            setSlot(f, bc.d_a, std::pow( getSlot( f, bc.d_b ).toDouble(), getSlot( f, bc.getCd() ).toDouble() ) );
+            setSlotVal(f, bc.d_a, std::pow( getSlotVal( f, bc.d_b ).toDouble(), getSlotVal( f, bc.getCd() ).toDouble() ) );
             f.d_pc++;
             break;
 
@@ -528,47 +584,47 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             {
                 QByteArray res;
                 for( int i = bc.d_b; i <= bc.getCd(); i++ )
-                    res += getSlot( f, i ).toByteArray();
-                setSlot( f, bc.d_a, res );
+                    res += getSlotVal( f, i ).toByteArray();
+                setSlotVal( f, bc.d_a, res );
                 f.d_pc++;
             }
             break;
 
         // Constant Ops **********************************
         case BC_KSHORT:
-            setSlot(f, bc.d_a, bc.getCd() );
+            setSlotVal(f, bc.d_a, bc.getCd() );
             f.d_pc++;
             break;
         case BC_KSTR:
-            setSlot(f, bc.d_a, getGcConst(f,bc.getCd()));
+            setSlotVal(f, bc.d_a, getGcConst(f,bc.getCd()));
             f.d_pc++;
             break;
         case BC_KNUM:
-            setSlot(f, bc.d_a, getNumConst(f,bc.getCd()));
+            setSlotVal(f, bc.d_a, getNumConst(f,bc.getCd()));
             f.d_pc++;
             break;
         case BC_KPRI:
-            setSlot(f, bc.d_a, getPriConst(bc.getCd()));
+            setSlotVal(f, bc.d_a, getPriConst(bc.getCd()));
             f.d_pc++;
             break;
         case BC_KNIL:
             for( int i = bc.d_a; i <= bc.getCd(); i++ )
-                setSlot(f, i, QVariant() );
+                setSlotVal(f, i, QVariant() );
             f.d_pc++;
             break;
             // TODO: what is KCDATA for?
 
         // Table Ops **********************************
         case BC_GSET:
-            d_globals[ getGcConst(f,bc.getCd()) ] = getSlot( f, bc.d_a );
+            d_globals[ getGcConst(f,bc.getCd()) ] = getSlotVal( f, bc.d_a );
             f.d_pc++;
             break;
         case BC_GGET:
-            setSlot(f, bc.d_a, d_globals.value(getGcConst(f,bc.getCd())) );
+            setSlotVal(f, bc.d_a, d_globals.value(getGcConst(f,bc.getCd())) );
             f.d_pc++;
             break;
         case BC_TNEW:
-            setSlot(f, bc.d_a, QVariant::fromValue(TableRef(new Table() ) ) );
+            setSlotVal(f, bc.d_a, QVariant::fromValue(TableRef(new Table() ) ) );
             f.d_pc++;
             break;
         case BC_TGETV:
@@ -576,7 +632,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                setSlot(f,bc.d_a, t.deref()->d_hash.value(getSlot(f,bc.getCd()) ) );
+                setSlotVal(f,bc.d_a, t.deref()->d_hash.value(getSlotVal(f,bc.getCd()) ) );
                 f.d_pc++;
             }
             break;
@@ -585,7 +641,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                setSlot(f,bc.d_a, t.deref()->d_hash.value(getGcConst(f,bc.getCd()) ) );
+                setSlotVal(f,bc.d_a, t.deref()->d_hash.value(getGcConst(f,bc.getCd()) ) );
                 f.d_pc++;
             }
             break;
@@ -594,7 +650,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                setSlot(f,bc.d_a, t.deref()->d_hash.value(bc.getCd()) );
+                setSlotVal(f,bc.d_a, t.deref()->d_hash.value(bc.getCd()) );
                 f.d_pc++;
             }
             break;
@@ -603,7 +659,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                t.deref()->d_hash.insert( getSlot(f,bc.getCd()), getSlot(f,bc.d_a) );
+                t.deref()->d_hash.insert( getSlotVal(f,bc.getCd()), getSlotVal(f,bc.d_a) );
                 f.d_pc++;
             }
             break;
@@ -612,7 +668,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                t.deref()->d_hash.insert( getGcConst(f,bc.getCd()), getSlot(f,bc.d_a) );
+                t.deref()->d_hash.insert( getGcConst(f,bc.getCd()), getSlotVal(f,bc.d_a) );
                 f.d_pc++;
             }
             break;
@@ -621,7 +677,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 TableRef t = getTable(f,bc.d_b);
                 if( t.isNull() )
                     return false;
-                t.deref()->d_hash.insert( bc.getCd(), getSlot(f,bc.d_a) );
+                t.deref()->d_hash.insert( bc.getCd(), getSlotVal(f,bc.d_a) );
                 f.d_pc++;
             }
             break;
@@ -632,7 +688,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 if( !v.canConvert<JitBytecode::ConstTable>() )
                     return error2(f,"");
                 t.deref()->d_hash = v.value<JitBytecode::ConstTable>().merged();
-                setSlot(f, bc.d_a, QVariant::fromValue( t ) );
+                setSlotVal(f, bc.d_a, QVariant::fromValue( t ) );
                 f.d_pc++;
             }
             break;
@@ -640,11 +696,11 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
 
         // Upvalue and Function ops (fully implemented) **********************************
         case BC_UGET:
-            setSlot(f, bc.d_a, getUpvalue( f, bc.getCd() ) );
+            setSlotVal(f, bc.d_a, getUpvalue( f, bc.getCd() ) );
             f.d_pc++;
             break;
         case BC_USETV:
-            setUpvalue( f, bc.d_a, getSlot( f, bc.getCd() ) );
+            setUpvalue( f, bc.d_a, getSlotVal( f, bc.getCd() ) );
             f.d_pc++;
             break;
         case BC_USETS:
@@ -694,7 +750,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                             error2( f, tr("accessing invalid upval number %1").arg(p->d_upvals[i]));
                     }
                 }
-                setSlot(f, bc.d_a, QVariant::fromValue( cc ) );
+                setSlotVal(f, bc.d_a, QVariant::fromValue( cc ) );
                 f.d_pc++;
             }
             break;
@@ -702,28 +758,28 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
         // Calls and Vararg Handling **********************************
         case BC_CALL:
             {
-                const QVariant vc = getSlot( f, bc.d_a );
+                const QVariant vc = getSlotVal( f, bc.d_a );
                 if( vc.canConvert<Closure>())
                 {
                     Closure c = vc.value<Closure>();
                     QVariantList inout;
                     for( int i = bc.d_a + 1; i <= ( bc.d_a + bc.getCd() - 1 ); i++ )
-                        inout.append( getSlot(f,i) );
+                        inout.append( getSlotVal(f,i) );
                     if( !run( &f, &c, inout ) )
                         return false;
                     for( int i = bc.d_a; i <= ( bc.d_a + bc.d_b - 2 ) && i < inout.size(); i++ )
-                        setSlot( f, i, inout[i] );
+                        setSlotVal( f, i, inout[i] );
                 }else if( vc.canConvert<CFunction>() )
                 {
                     CFunction c = vc.value<CFunction>();
                     QVariantList inout;
                     for( int i = bc.d_a + 1; i <= ( bc.d_a + bc.getCd() - 1 ); i++ )
-                        inout.append( getSlot(f,i) );
+                        inout.append( getSlotVal(f,i) );
                     const int res = c.d_func(this,inout);
                     if( res < 0 )
                         return false;
                     for( int i = bc.d_a; i <= ( bc.d_a + bc.d_b - 2 ) && i < inout.size() && i < res; i++ )
-                        setSlot( f, i, inout[i] );
+                        setSlotVal( f, i, inout[i] );
                 }else
                     return error2(f,tr("slot %1 is neither a closure nor a cfunction").arg(bc.d_a) );
                 f.d_pc++;
@@ -739,3 +795,8 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
     return true;
 }
 
+void JitEngine::Frame::dump()
+{
+    for( int i = 0; i < d_slots.size(); i++ )
+        qDebug() << "Slot" << i << "=" << tostring(d_slots[i]->d_val);
+}

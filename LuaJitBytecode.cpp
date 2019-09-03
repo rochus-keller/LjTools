@@ -557,10 +557,8 @@ uint qHash(const QVariant& v, uint seed)
     case QVariant::Bool:
     case QVariant::UInt:
     case QVariant::ULongLong:
-        return qHash( v.toULongLong());
     case QVariant::Int:
     case QVariant::LongLong:
-        return qHash( v.toLongLong());
     case QVariant::Double:
         return qHash( v.toDouble() );
     default:
