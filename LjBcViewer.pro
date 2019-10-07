@@ -35,7 +35,8 @@ SOURCES += main.cpp\
     Terminal2.cpp \
     ExpressionParser.cpp \
     BcViewer.cpp \
-    LuaJitEngine.cpp
+    LuaJitEngine.cpp \
+    LuaJitComposer.cpp
 
 HEADERS  += MainWindow.h \
     ../GuiTools/CodeEditor.h \
@@ -45,9 +46,14 @@ HEADERS  += MainWindow.h \
     Terminal2.h \
     ExpressionParser.h \
     BcViewer.h \
-    LuaJitEngine.h
+    LuaJitEngine.h \
+    LuaJitComposer.h
 
-LIBS += -lluajit
+include( /home/me/Desktop/LuaJIT-2.0.5/src/LuaJit.pri ){
+    LIBS += -ldl
+} else {
+    LIBS += -lluajit
+}
 
 include( ../GuiTools/Menu.pri )
 

@@ -35,6 +35,7 @@ namespace Lua
     public:
         typedef QVector<quint32> CodeList;
         typedef QVector<quint16> UpvalList;
+
         struct ConstTable
         {
             QHash<QVariant,QVariant> d_hash;
@@ -45,7 +46,9 @@ namespace Lua
         struct Function : public QSharedData
         {
             enum { UvLocalMask = 0x8000, /* Upvalue for local slot. */
-                   UvImmutableMask = 0x4000 /* Immutable upvalue. */ // a local seems to be immutable if only initialized but never changed
+                   UvImmutableMask = 0x4000, /* Immutable upvalue. */ // a local seems to be immutable if only initialized but never changed
+                   FuHasSubFus = 0x1,   // has subfunctions
+                   FuVarargs = 0x2,     // has varargs
                  };
             QString d_sourceFile;
             quint32 d_id; // index in bytecode file
@@ -76,7 +79,20 @@ namespace Lua
             bool isImmutableUpval( int i ) const  { return d_upvals[i] & UvImmutableMask; }
         };
         typedef QExplicitlySharedDataPointer<Function> FuncRef;
-        struct ByteCode
+
+        enum Op { OP_ISLT, OP_ISGE, OP_ISLE, OP_ISGT, OP_ISEQV, OP_ISNEV, OP_ISEQS, OP_ISNES, OP_ISEQN,
+                  OP_ISNEN, OP_ISEQP, OP_ISNEP, OP_ISTC, OP_ISFC, OP_IST, OP_ISF, OP_MOV, OP_NOT, OP_UNM,
+                  OP_LEN, OP_ADDVN, OP_SUBVN, OP_MULVN, OP_DIVVN, OP_MODVN, OP_ADDNV, OP_SUBNV, OP_MULNV,
+                  OP_DIVNV, OP_MODNV, OP_ADDVV, OP_SUBVV, OP_MULVV, OP_DIVVV, OP_MODVV, OP_POW, OP_CAT,
+                  OP_KSTR, OP_KCDATA, OP_KSHORT, OP_KNUM, OP_KPRI, OP_KNIL, OP_UGET, OP_USETV, OP_USETS,
+                  OP_USETN, OP_USETP, OP_UCLO, OP_FNEW, OP_TNEW, OP_TDUP, OP_GGET, OP_GSET, OP_TGETV,
+                  OP_TGETS, OP_TGETB, OP_TSETV, OP_TSETS, OP_TSETB, OP_TSETM, OP_CALLM, OP_CALL, OP_CALLMT,
+                  OP_CALLT, OP_ITERC, OP_ITERN, OP_VARG, OP_ISNEXT, OP_RETM, OP_RET, OP_RET0, OP_RET1,
+                  OP_FORI, OP_JFORI, OP_FORL, OP_IFORL, OP_JFORL, OP_ITERL, OP_IITERL, OP_JITERL, OP_LOOP,
+                  OP_ILOOP, OP_JLOOP, OP_JMP // FUNCF ff are not supported here
+                };
+
+        struct Instruction
         {
             enum FieldType {
                 Unused,
@@ -103,8 +119,8 @@ namespace Lua
             quint8 d_a, d_b;
             quint16 d_cd;
             quint8 d_ta, d_tb, d_tcd;
-            quint8 d_op;
-            ByteCode():d_ta(Unused),d_tb(Unused),d_tcd(Unused),d_a(0),d_b(0),d_cd(0),d_name(""),d_op(0){}
+            quint8 d_op; // enum Op
+            Instruction():d_ta(Unused),d_tb(Unused),d_tcd(Unused),d_a(0),d_b(0),d_cd(0),d_name(""),d_op(0){}
             int getCd() const {
                 switch( d_tcd )
                 {
@@ -120,9 +136,15 @@ namespace Lua
 
         explicit JitBytecode(QObject *parent = 0);
         bool parse( const QString& file );
+        bool parse(QIODevice* in , const QString& path = QString());
         const QList<FuncRef>& getFuncs() const { return d_funcs; }
         Function* getRoot() const;
-        static ByteCode dissectByteCode(quint32);
+        bool isStripped() const;
+        static Instruction dissectInstruction(quint32);
+        enum Format { ABC, AD };
+        static Format formatFromOp(quint8);
+        static Instruction::FieldType typeCdFromOp(quint8);
+        static Instruction::FieldType typeBFromOp(quint8);
         static bool isNumber( const QVariant& );
         static bool isString( const QVariant& );
     protected:

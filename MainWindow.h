@@ -61,7 +61,8 @@ namespace Lua
         void onGotoLnr(int);
         void onFullScreen();
         void onCursor();
-        void onExport();
+        void onExportBc();
+        void onExportAsm();
 
     private:
         CodeEditor* d_edit;

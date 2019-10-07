@@ -1,22 +1,21 @@
 /*
- * Copyright 2000-2019 Rochus Keller <mailto:rkeller@nmr.ch>
- *
- * This file is part of the CARA (Computer Aided Resonance Assignment,
- * see <http://cara.nmr.ch/>) NMR Application Framework (NAF) library.
- *
- * The following is the license that applies to this copy of the
- * library. For a license to use the library under conditions
- * other than those described here, please email to rkeller@nmr.ch.
- *
- * GNU General Public License Usage
- * This file may be used under the terms of the GNU General Public
- * License (GPL) versions 2.0 or 3.0 as published by the Free Software
- * Foundation and appearing in the file LICENSE.GPL included in
- * the packaging of this file. Please review the following information
- * to ensure GNU General Public Licensing requirements will be met:
- * http://www.fsf.org/licensing/licenses/info/GPLv2.html and
- * http://www.gnu.org/copyleft/gpl.html.
- */
+* Copyright 2019 Rochus Keller <mailto:me@rochus-keller.ch>
+*
+* This file is part of the JuaJIT BC Viewer application.
+*
+* The following is the license that applies to this copy of the
+* application. For a license to use the application under conditions
+* other than those described here, please email to me@rochus-keller.ch.
+*
+* GNU General Public License Usage
+* This file may be used under the terms of the GNU General Public
+* License (GPL) versions 2.0 or 3.0 as published by the Free Software
+* Foundation and appearing in the file LICENSE.GPL included in
+* the packaging of this file. Please review the following information
+* to ensure GNU General Public Licensing requirements will be met:
+* http://www.fsf.org/licensing/licenses/info/GPLv2.html and
+* http://www.gnu.org/copyleft/gpl.html.
+*/
 
 #include <lua.hpp>
 
@@ -24,6 +23,7 @@
 #include <QCoreApplication>
 #include <math.h>
 #include <QtDebug>
+#include <iostream>
 
 using namespace Lua;
 
@@ -55,6 +55,8 @@ int Engine2::_print (lua_State *L)
         val1 += s;
 		lua_pop(L, 1);  /* pop result */
 	}
+    if( !val1.endsWith('\n') )
+        val1 += '\n';
 	try
 	{
 		e->notify( Print, val1 );
@@ -101,10 +103,12 @@ int Engine2::_writeImp(lua_State *L, bool err) {
         }
     }
     out.flush();
+    /*
     if( buf.endsWith('\n') )
         buf.chop(1);
     else if( buf.endsWith("\r\n") )
         buf.chop(2);
+        */
     Engine2* e = Engine2::getInst();
     Q_ASSERT( e != 0 );
     try
@@ -122,7 +126,8 @@ int Engine2::_writeImp(lua_State *L, bool err) {
 
 Engine2::Engine2(QObject *p):QObject(p),
     d_ctx( 0 ), d_debugging( false ), d_running(false), d_waitForCommand(false),
-	d_dbgCmd(RunToBreakPoint), d_defaultDbgCmd(RunToBreakPoint), d_activeLevel(0), d_dbgShell(0)
+    d_dbgCmd(RunToBreakPoint), d_defaultDbgCmd(RunToBreakPoint), d_activeLevel(0), d_dbgShell(0),
+    d_printToStdout(false)
 {
     lua_State* ctx = lua_open();
 	if( ctx == 0 )
@@ -134,8 +139,10 @@ Engine2::Engine2(QObject *p):QObject(p),
 
 	addLibrary( BASE );	// Das muss hier stehen, sonst wird ev. print wieder überschrieben
 
+#ifndef LUA_ENGINE_USE_DEFAULT_PRINT
     lua_pushcfunction( ctx, _print );
     lua_setglobal( ctx, "print" );
+#endif
 }
 
 Engine2::~Engine2()
@@ -216,6 +223,7 @@ void Engine2::addLibrary(Lib what)
 		lua_pushcfunction( d_ctx, luaopen_io );
 		lua_pushstring(d_ctx, LUA_IOLIBNAME );
         lua_call(d_ctx, 1, 0);
+#ifndef LUA_ENGINE_USE_DEFAULT_PRINT
         // redirect stdout
         lua_createtable(d_ctx,0,1); // file
         lua_pushcfunction( d_ctx, _writeStdout );
@@ -236,6 +244,7 @@ void Engine2::addLibrary(Lib what)
         lua_pushvalue(d_ctx,-2);
         lua_setfield(d_ctx, -2, "stderr" );
         lua_pop(d_ctx,2); // file + io
+#endif
         break;
 #if LUA_VERSION_NUM >= 501
 	case OS:
@@ -411,6 +420,39 @@ bool Engine2::runFunction(int nargs, int nresults)
         d_returns << getValueString( i );
     notifyEnd();
     return (err == 0);
+}
+
+bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
+{
+    if( !pushFunction( source, libname ) )
+        return false;
+
+    const int err = lua_pcall( d_ctx, 0, 1, 0 );
+    switch( err )
+    {
+    case LUA_ERRRUN:
+        d_lastError = lua_tostring( d_ctx, -1 );
+        lua_pop( d_ctx, 1 );  /* remove error message */
+        return false;
+    case LUA_ERRMEM:
+        d_lastError = "Lua memory exception";
+        return false;
+    case LUA_ERRERR:
+        // should not happen
+        d_lastError = "Lua unknown error";
+        return false;
+    }
+    // stack: lib
+    // sets it as the value of the global variable libname, sets it as the value of package.loaded[libname]
+    lua_pushvalue(d_ctx, -1 ); // stack: lib lib
+    lua_setfield(d_ctx, LUA_GLOBALSINDEX, libname.constData() ); // stack: lib
+    lua_getfield(d_ctx, LUA_GLOBALSINDEX, "package"); // stack: lib package
+    lua_getfield(d_ctx, -1, "loaded"); // stack: lib package loaded
+    lua_pushvalue(d_ctx, -3 ); // stack: lib package loaded lib
+    lua_setfield(d_ctx, -2, libname.constData() ); // stack: lib package loaded
+    lua_pop(d_ctx,3); // stack: -
+
+    return true;
 }
 
 void Engine2::collect()
@@ -769,5 +811,17 @@ void Engine2::dumpStackFrom(int arg, const char* title )
 
 void Engine2::notify(MessageType messageType, const QByteArray &val1, int val2)
 {
+    if( d_printToStdout )
+    {
+        switch( messageType )
+        {
+        case Print:
+            std::cout << val1.constData();
+            break;
+        case Error:
+            std::cerr << val1.constData();
+            break;
+        }
+    }
 	emit onNotify( messageType, val1, val2 );
 }

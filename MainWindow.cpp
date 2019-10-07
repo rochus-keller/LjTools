@@ -130,6 +130,10 @@ void MainWindow::loadFile(const QString& path)
     d_edit->loadFromFile(path);
     QDir::setCurrent(QFileInfo(path).absolutePath());
     onCaption();
+
+    // TEST
+    onDump();
+    d_bcv->saveTo(path + ".ljasm");
 }
 
 void MainWindow::logMessage(const QString& str, bool err)
@@ -177,7 +181,8 @@ void MainWindow::createMenu()
     pop->addCommand( "Execute LuaJIT", this, SLOT(onRun()), tr("CTRL+E"), false );
     pop->addCommand( "Execute test VM", this, SLOT(onRun2()), tr("CTRL+SHIFT+E"), false );
     pop->addCommand( "Dump", this, SLOT(onDump()), tr("CTRL+D"), false );
-    pop->addCommand( "Export binary...", this, SLOT(onExport()) );
+    pop->addCommand( "Export binary...", this, SLOT(onExportBc()) );
+    pop->addCommand( "Export assembler...", this, SLOT(onExportAsm()) );
     pop->addSeparator();
     pop->addCommand( "Undo", d_edit, SLOT(handleEditUndo()), tr("CTRL+Z"), true );
     pop->addCommand( "Redo", d_edit, SLOT(handleEditRedo()), tr("CTRL+Y"), true );
@@ -355,7 +360,7 @@ void MainWindow::onCursor()
     d_lock = false;
 }
 
-void MainWindow::onExport()
+void MainWindow::onExportBc()
 {
     ENABLED_IF(true);
     QString fileName = QFileDialog::getSaveFileName(this, tr("Save Binary"),
@@ -370,6 +375,30 @@ void MainWindow::onExport()
     if( !fileName.endsWith(".bc",Qt::CaseInsensitive ) )
         fileName += ".bc";
     d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),fileName.toUtf8());
+}
+
+void MainWindow::onExportAsm()
+{
+    ENABLED_IF(true);
+
+    if( d_bcv->topLevelItemCount() == 0 )
+        onDump();
+    if( d_bcv->topLevelItemCount() == 0 )
+        return;
+
+    QString fileName = QFileDialog::getSaveFileName(this, tr("Save Assembler"),
+                                                          d_edit->getPath(),
+                                                          tr("*.ljasm") );
+
+    if (fileName.isEmpty())
+        return;
+
+    QDir::setCurrent(QFileInfo(fileName).absolutePath());
+
+    if( !fileName.endsWith(".ljasm",Qt::CaseInsensitive ) )
+        fileName += ".ljasm";
+
+    d_bcv->saveTo(fileName);
 }
 
 bool MainWindow::checkSaved(const QString& title)

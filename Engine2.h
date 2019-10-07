@@ -1,25 +1,26 @@
-/*
- * Copyright 2000-2019 Rochus Keller <mailto:rkeller@nmr.ch>
- *
- * This file is part of the CARA (Computer Aided Resonance Assignment,
- * see <http://cara.nmr.ch/>) NMR Application Framework (NAF) library.
- *
- * The following is the license that applies to this copy of the
- * library. For a license to use the library under conditions
- * other than those described here, please email to rkeller@nmr.ch.
- *
- * GNU General Public License Usage
- * This file may be used under the terms of the GNU General Public
- * License (GPL) versions 2.0 or 3.0 as published by the Free Software
- * Foundation and appearing in the file LICENSE.GPL included in
- * the packaging of this file. Please review the following information
- * to ensure GNU General Public Licensing requirements will be met:
- * http://www.fsf.org/licensing/licenses/info/GPLv2.html and
- * http://www.gnu.org/copyleft/gpl.html.
- */
-
 #if !defined(LUA_ENGINE2__H)
 #define LUA_ENGINE2__H
+
+/*
+* Copyright 2019 Rochus Keller <mailto:me@rochus-keller.ch>
+*
+* This file is part of the JuaJIT BC Viewer application.
+*
+* The following is the license that applies to this copy of the
+* application. For a license to use the application under conditions
+* other than those described here, please email to me@rochus-keller.ch.
+*
+* GNU General Public License Usage
+* This file may be used under the terms of the GNU General Public
+* License (GPL) versions 2.0 or 3.0 as published by the Free Software
+* Foundation and appearing in the file LICENSE.GPL included in
+* the packaging of this file. Please review the following information
+* to ensure GNU General Public Licensing requirements will be met:
+* http://www.fsf.org/licensing/licenses/info/GPLv2.html and
+* http://www.gnu.org/copyleft/gpl.html.
+*/
+
+// adopted from NMR Application Framework, see https://github.com/rochus-keller/NAF
 
 #include <QObject>
 #include <QSet>
@@ -46,6 +47,7 @@ namespace Lua
             PACKAGE, TABLE, STRING, MATH, OS, IO, LOAD, DBG, BIT, JIT, FFI };
 		void addLibrary( Lib );
 		void addStdLibs();
+        void setPrintToStdout(bool on) { d_printToStdout = on; }
 		void setPluginPath( const char*, bool cpath = false);
 		// LUA_PATH, LUA_CPATH, package.loadlib, package.path und package.cpath sind unwirksam.
 		// setPluginPath() setzt registry.plugindir, Lua-Code hat darauf keinen Zugriff.
@@ -96,6 +98,7 @@ namespace Lua
         bool executeFile( const QByteArray& path );
         bool pushFunction( const QByteArray& source, const QByteArray& name = QByteArray() );
         bool runFunction( int nargs = 0, int nresults = 0 ); // Stack pre: func, par1..parN; post: -
+        bool addSourceLib( const QByteArray& source, const QByteArray& libname );
         bool isExecuting() const { return d_running; }
         bool saveBinary( const QByteArray& source, const QByteArray& name, const QByteArray& path );
 		static QByteArray getBinaryFromFunc(lua_State *L); // erwartet Func bei -1
@@ -165,6 +168,7 @@ namespace Lua
         bool d_debugging;
         bool d_running;
         bool d_waitForCommand;
+        bool d_printToStdout;
 	};
 }
 

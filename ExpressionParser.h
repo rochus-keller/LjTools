@@ -1,12 +1,14 @@
+#ifndef EXPRESSIONPARSER_H
+#define EXPRESSIONPARSER_H
+
 /*
-* Copyright 2000-2015 Rochus Keller <mailto:rkeller@nmr.ch>
+* Copyright 2019 Rochus Keller <mailto:me@rochus-keller.ch>
 *
-* This file is part of the CARA (Computer Aided Resonance Assignment,
-* see <http://cara.nmr.ch/>) NMR Application Framework (NAF) library.
+* This file is part of the JuaJIT BC Viewer application.
 *
 * The following is the license that applies to this copy of the
-* library. For a license to use the library under conditions
-* other than those described here, please email to rkeller@nmr.ch.
+* application. For a license to use the application under conditions
+* other than those described here, please email to me@rochus-keller.ch.
 *
 * GNU General Public License Usage
 * This file may be used under the terms of the GNU General Public
@@ -18,8 +20,7 @@
 * http://www.gnu.org/copyleft/gpl.html.
 */
 
-#ifndef EXPRESSIONPARSER_H
-#define EXPRESSIONPARSER_H
+// adopted from NMR Application Framework, see https://github.com/rochus-keller/NAF
 
 #include <QVariant>
 #include <QTextStream>

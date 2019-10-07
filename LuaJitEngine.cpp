@@ -234,7 +234,7 @@ bool JitEngine::isTrue(const QVariant& v)
     return !v.isNull() && !( v.type() == QVariant::Bool && v.toBool() == false );
 }
 
-bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::ByteCode& bc)
+bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::Instruction& bc)
 {
     const QVariant lhs = getSlotVal(f, bc.d_a );
     const QVariant rhs = getSlotVal(f, bc.getCd() );
@@ -283,7 +283,7 @@ bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::ByteCode& bc)
     return doJumpAfterCompare(f, res);
 }
 
-bool JitEngine::doEquality(JitEngine::Frame& f, const JitBytecode::ByteCode& bc)
+bool JitEngine::doEquality(JitEngine::Frame& f, const JitBytecode::Instruction& bc)
 {
     const QVariant lhs = getSlotVal(f, bc.d_a );
     QVariant rhs;
@@ -373,7 +373,7 @@ bool JitEngine::doJumpAfterCompare(JitEngine::Frame& f, bool res)
     f.d_pc++;
     if( f.d_pc >= f.d_func->d_func->d_byteCodes.size() )
         return true; // handle error in main loop
-    JitBytecode::ByteCode bc = JitBytecode::dissectByteCode(f.d_func->d_func->d_byteCodes[f.d_pc]);
+    JitBytecode::Instruction bc = JitBytecode::dissectInstruction(f.d_func->d_func->d_byteCodes[f.d_pc]);
     if( bc.d_op != BC_JMP )
         return error2(f, "comparison op must be followed by JMP");
     f.d_pc++; // relative to next instruction
@@ -399,7 +399,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
 
         if( f.d_pc >= c->d_func->d_byteCodes.size() )
             return error2(f,"pc points out of bytecode");
-        JitBytecode::ByteCode bc = JitBytecode::dissectByteCode(c->d_func->d_byteCodes[f.d_pc]);
+        JitBytecode::Instruction bc = JitBytecode::dissectInstruction(c->d_func->d_byteCodes[f.d_pc]);
         switch( bc.d_op )
         {
         // Comparison ops (fully implemented) **********************************
@@ -693,6 +693,11 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             }
             break;
             // Pending: TSETM
+            // Operand D of TSETM points to a biased floating-point number in the constant table. Only the
+            // lowest 32 bits from the mantissa are used as a starting table index. MULTRES from the previous
+            // bytecode gives the number of table slots to fill.
+            //         if op == "TSETM " then kc = kc - 2^52 end
+
 
         // Upvalue and Function ops (fully implemented) **********************************
         case BC_UGET:

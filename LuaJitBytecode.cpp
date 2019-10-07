@@ -98,15 +98,16 @@ struct _ByteCode
     const char* d_op;
     quint8 d_fa;
     quint8 d_fb;
-    quint8 d_fc;
+    quint8 d_fcd;
 } s_byteCodes[] =
 {
-#define BCSTRUCT(name, ma, mb, mc, mt) { #name, JitBytecode::ByteCode::_##ma, JitBytecode::ByteCode::_##mb, JitBytecode::ByteCode::_##mc },
+#define BCSTRUCT(name, ma, mb, mc, mt) { #name, JitBytecode::Instruction::_##ma, \
+    JitBytecode::Instruction::_##mb, JitBytecode::Instruction::_##mc },
 BCDEF(BCSTRUCT)
 #undef BCENUM
 };
 
-const char* JitBytecode::ByteCode::s_typeName[] =
+const char* JitBytecode::Instruction::s_typeName[] =
 {
     "",
     "var",
@@ -301,7 +302,24 @@ static QVariantList readNumConsts( QIODevice* in, quint32 len )
             TValue u;
             u.lo = lo;
             u.hi = bcread_uleb128(in);
+
+#if 0
+            if ((u.hi << 1) < 0xffe00000) {  /* Finite? */  // 1111 1111 1110 0000 0000 0000 0000 0000
+                res << u.d;
+            } else if (((u.hi & 0x000fffff) | u.lo) != 0) { // 0000 0000 0000 1111 1111 1111 1111 1111
+                qDebug() << "nan";
+            } else if ((u.hi & 0x80000000) == 0) {          // 1000 0000 0000 0000 0000 0000 0000 0000
+                qDebug() << "+inf";
+            } else {
+                qDebug() << "-inf";
+            }
+#else
+            // const quint32 test =  u.d + 6755399441055744.0;  /* 2^52 + 2^51 */
+            //     if op == "TSETM " then kc = kc - 2^52 end ???
             res << u.d;
+
+
+#endif
         } else {
             res << lo;
         }
@@ -408,6 +426,8 @@ static void readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& ups, Q
 
 JitBytecode::JitBytecode(QObject *parent) : QObject(parent)
 {
+    //for( int i = 0; i < BC__MAX; i++ )
+    //   qDebug() << QString("OP_%1, ").arg(s_byteCodes[i].d_op).toUtf8().constData();
 }
 
 bool JitBytecode::parse(const QString& file)
@@ -415,21 +435,26 @@ bool JitBytecode::parse(const QString& file)
     QFile in(file);
     if( !in.open(QIODevice::ReadOnly) )
         return error( tr("cannot open file for reading: %1").arg(file) );
+    return parse(&in);
+}
 
+bool JitBytecode::parse(QIODevice* in, const QString& path)
+{
+    Q_ASSERT( in != 0 );
     d_name.clear();
     d_funcs.clear();
     d_fstack.clear();
     d_flags = 0;
 
-    if( !parseHeader(&in) )
+    if( !parseHeader(in) )
         return false;
 
     if( d_name.isEmpty() )
-        d_name = file;
+        d_name = path;
 
-    while( !in.atEnd() )
+    while( !in->atEnd() )
     {
-        if( !parseFunction(&in) )
+        if( !parseFunction(in) )
             break; // eof
     }
     if( getRoot() )
@@ -445,9 +470,14 @@ JitBytecode::Function* JitBytecode::getRoot() const
         return 0;
 }
 
-JitBytecode::ByteCode JitBytecode::dissectByteCode(quint32 i)
+bool JitBytecode::isStripped() const
 {
-    ByteCode res;
+    return d_flags & BCDUMP_F_STRIP;
+}
+
+JitBytecode::Instruction JitBytecode::dissectInstruction(quint32 i)
+{
+    Instruction res;
     const int op = bc_op(i);
     if( op >= 0 && op < BC__MAX )
     {
@@ -456,19 +486,43 @@ JitBytecode::ByteCode JitBytecode::dissectByteCode(quint32 i)
         res.d_op = op;
         res.d_ta = bc.d_fa;
         res.d_tb = bc.d_fb;
-        res.d_tcd = bc.d_fc;
-        if( bc.d_fa != ByteCode::Unused )
+        res.d_tcd = bc.d_fcd;
+        if( bc.d_fa != Instruction::Unused )
             res.d_a = bc_a(i);
-        if( bc.d_fb != ByteCode::Unused )
+        if( bc.d_fb != Instruction::Unused )
         {
             res.d_b = bc_b(i);
-            if( bc.d_fc != ByteCode::Unused )
+            if( bc.d_fcd != Instruction::Unused )
                 res.d_cd = bc_c(i);
-        }else if( bc.d_fc != ByteCode::Unused )
+        }else if( bc.d_fcd != Instruction::Unused )
             res.d_cd = (i) >>16;
     }else
         res.d_name = "???";
     return res;
+}
+
+JitBytecode::Format JitBytecode::formatFromOp(quint8 op)
+{
+    if( op < BC__MAX && s_byteCodes[op].d_fb != Instruction::Unused )
+        return ABC;
+    else
+        return AD;
+}
+
+JitBytecode::Instruction::FieldType JitBytecode::typeCdFromOp(quint8 op)
+{
+    if( op < BC__MAX )
+        return (Instruction::FieldType)s_byteCodes[op].d_fcd;
+    else
+        return Instruction::Unused;
+}
+
+JitBytecode::Instruction::FieldType JitBytecode::typeBFromOp(quint8 op)
+{
+    if( op < BC__MAX )
+        return (Instruction::FieldType)s_byteCodes[op].d_fb;
+    else
+        return Instruction::Unused;
 }
 
 bool JitBytecode::parseHeader(QIODevice* in)

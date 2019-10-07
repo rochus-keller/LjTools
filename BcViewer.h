@@ -23,6 +23,8 @@
 #include <QTreeWidget>
 #include "LuaJitBytecode.h"
 
+class QTextStream;
+
 namespace Lua
 {
     class BcViewer : public QTreeWidget
@@ -31,7 +33,9 @@ namespace Lua
     public:
         explicit BcViewer(QWidget *parent = 0);
         bool loadFrom( const QString& );
+        bool loadFrom( QIODevice*, const QString& path = QString() );
         void gotoLine(int);
+        bool saveTo( const QString& );
     signals:
         void sigGotoLine(int lnr);
     protected slots:
@@ -39,6 +43,11 @@ namespace Lua
         void onSelectionChanged();
     protected:
         QTreeWidgetItem* addFunc( const JitBytecode::Function*, QTreeWidgetItem* p = 0 );
+        bool writeFunc( QTextStream& out, const JitBytecode::Function*, int indent = 0 );
+        QByteArray renderArg( const JitBytecode::Function*, int t, int v );
+        void fillTree();
+    private:
+        JitBytecode d_bc;
     };
 }
 

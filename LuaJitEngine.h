@@ -145,8 +145,8 @@ namespace Lua
         QVariant getNumConst( const Frame& f, int i ) const;
         QVariant getGcConst( const Frame& f, int i ) const;
         QVariant getPriConst(int i );
-        bool doCompare( Frame&, const JitBytecode::ByteCode& bc );
-        bool doEquality( Frame&, const JitBytecode::ByteCode& bc );
+        bool doCompare( Frame&, const JitBytecode::Instruction& bc );
+        bool doEquality( Frame&, const JitBytecode::Instruction& bc );
         bool doJumpAfterCompare(Frame&, bool res );
 
         static int _print(JitEngine*,  QVariantList& inout );
