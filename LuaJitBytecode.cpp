@@ -247,7 +247,7 @@ static QVariant bcread_ktabk(QIODevice* in )
         return QVariant();
 }
 
-QVariantList JitBytecode::readObjConsts( QIODevice* in, quint32 len )
+QVariantList JitBytecode::readObjConsts( Function* f, QIODevice* in, quint32 len )
 {
     QVariantList res;
     for( int i = 0; i < len; i++ )
@@ -282,7 +282,12 @@ QVariantList JitBytecode::readObjConsts( QIODevice* in, quint32 len )
                 error(tr("referencing unknown child function"));
             else
             {
-                res.append( QVariant::fromValue(d_fstack.back()) );
+                FuncRef r = d_fstack.back();
+                if( r->d_outer != 0 )
+                    error(tr("invalid function hierarchy"));
+                else
+                    r->d_outer = f;
+                res.append( QVariant::fromValue(r) );
                 d_fstack.pop_back();
             }
         }
@@ -418,6 +423,7 @@ static void readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& ups, Q
         }else
             var.d_name = s_varname[quint8(tmp[pos])];
         pos++;
+        // TODO: is this correct? there seems to be an n:m relation between names and slot numbers
         lastpc = var.d_startpc = lastpc + debug_read_uleb128( (const quint8*)tmp.constData(), pos );
         var.d_endpc = var.d_startpc + debug_read_uleb128( (const quint8*)tmp.constData(), pos );
         vars.append( var );
@@ -583,7 +589,7 @@ bool JitBytecode::parseFunction(QIODevice* in )
 
     f.d_upvals = readUpval( in, swap, sizeuv );
 
-    f.d_constObjs = readObjConsts( in, sizekgc );
+    f.d_constObjs = readObjConsts( fr.data(), in, sizekgc );
     f.d_constNums = readNumConsts( in, sizekn );
 
     const quint32 sizeli = sizebc << (f.d_numline < 256 ? 0 : ( f.d_numline < 65536 ? 1 : 2 ) );
@@ -652,4 +658,14 @@ bool JitBytecode::isNumber(const QVariant& v)
 bool JitBytecode::isString(const QVariant& v)
 {
     return v.type() == QVariant::String || v.type() == QVariant::ByteArray;
+}
+
+QPair<quint8, JitBytecode::Function*> JitBytecode::Function::getFuncSlotFromUpval(quint8 upval) const
+{
+    if( d_outer == 0 )
+        return qMakePair(quint8(0),(Function*)0);
+    if( isLocalUpval( upval ) )
+        return qMakePair( getUpval(upval), d_outer );
+    else
+        return d_outer->getFuncSlotFromUpval(getUpval(upval));
 }

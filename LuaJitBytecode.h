@@ -71,12 +71,15 @@ namespace Lua
                 QByteArray d_name;
             };
             QList<Var> d_vars;
+            Function* d_outer;
 
-            Function():d_isRoot(false){}
+            Function():d_isRoot(false),d_outer(0){}
 
+            bool isStripped() const { return d_lines.isEmpty() && d_upNames.isEmpty() && d_vars.isEmpty(); }
             quint16 getUpval( int i ) const { return d_upvals[i] & ~( UvImmutableMask | UvLocalMask ); }
             bool isLocalUpval( int i ) const { return d_upvals[i] & UvLocalMask; }
             bool isImmutableUpval( int i ) const  { return d_upvals[i] & UvImmutableMask; }
+            QPair<quint8,Function*> getFuncSlotFromUpval(quint8) const;
         };
         typedef QExplicitlySharedDataPointer<Function> FuncRef;
 
@@ -104,7 +107,7 @@ namespace Lua
                 _dst,   // variable slot number, used as a destination
                 _rbase, // base slot number, read-only
                 _cdata, // cdata constant, negated index into constant table
-                _lit,   // literal
+                _lit,   // unsigned literal
                 _lits,  // signed literal
                 _base,  // base slot number, read-write
                 _uv,    // upvalue number
@@ -151,7 +154,7 @@ namespace Lua
         bool parseHeader(QIODevice* );
         bool parseFunction(QIODevice* );
         bool error( const QString& );
-        QVariantList readObjConsts(QIODevice* in, quint32 len );
+        QVariantList readObjConsts( Function* f, QIODevice* in, quint32 len );
     private:
         QString d_name;
         QList<FuncRef> d_funcs;

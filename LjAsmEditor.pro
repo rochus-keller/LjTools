@@ -1,7 +1,7 @@
 #/*
 #* Copyright 2019 Rochus Keller <mailto:me@rochus-keller.ch>
 #*
-#* This file is part of the LuaJIT BC Viewer application.
+#* This file is part of the LuaJIT ASM Viewer application.
 #*
 #* The following is the license that applies to this copy of the
 #* application. For a license to use the application under conditions
@@ -21,34 +21,52 @@ QT       += core gui
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets printsupport
 
-TARGET = LjBcViewer
+TARGET = LjAsmViewer
 TEMPLATE = app
 
 INCLUDEPATH += .. ./luajit-2.0
 
-SOURCES += LjBcViewerMain.cpp \
+SOURCES += LjAsmEditor.cpp \
     ../GuiTools/CodeEditor.cpp \
     LuaHighlighter.cpp \
     LuaJitBytecode.cpp \
     Engine2.cpp \
     Terminal2.cpp \
     ExpressionParser.cpp \
-    BcViewer.cpp \
     LuaJitEngine.cpp \
-    LuaJitComposer.cpp
+    LuaJitComposer.cpp \
+    LjasErrors.cpp \
+    LjasFileCache.cpp \
+    LjasLexer.cpp \
+    LjasParser.cpp \
+    LjasSynTree.cpp \
+    LjasToken.cpp \
+    LjasTokenType.cpp \
+    LjasHighlighter.cpp \
+    LjDisasm.cpp \
+    LjAssembler.cpp
 
-HEADERS  += LjBcViewerMain.h \
+HEADERS  += LjAsmEditor.h \
     ../GuiTools/CodeEditor.h \
     LuaHighlighter.h \
     LuaJitBytecode.h \
     Engine2.h \
     Terminal2.h \
     ExpressionParser.h \
-    BcViewer.h \
     LuaJitEngine.h \
-    LuaJitComposer.h
+    LuaJitComposer.h \
+    LjasErrors.h \
+    LjasFileCache.h \
+    LjasLexer.h \
+    LjasParser.h \
+    LjasSynTree.h \
+    LjasToken.h \
+    LjasTokenType.h \
+    LjasHighlighter.h \
+    LjDisasm.h \
+    LjAssembler.h
 
-include( ../LuaJit/LuaJit.pri ){
+include( /home/me/Desktop/LuaJIT-2.0.5/src/LuaJit.pri ){
     LIBS += -ldl
 } else {
     LIBS += -lluajit

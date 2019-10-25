@@ -1,0 +1,10 @@
+../../Coco/Coco ./LjAsm.atg -trace FP -o . -namespace Ljas > ./coco_out.txt
+
+mv ./Parser.h ../LjasParser.h
+mv ./Parser.cpp ../LjasParser.cpp
+
+mv ./LjasSynTree.h ..
+mv ./LjasSynTree.cpp ..
+
+mv ./LjasTokenType.h ..
+mv ./LjasTokenType.cpp ..

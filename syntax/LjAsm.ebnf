@@ -1,0 +1,134 @@
+LjAsm ::= function_decl
+
+function_decl ::= 
+	function [ fname ] function_header [ function_body ] end [ fname ]
+
+function_header ::= 
+	'(' formal_params ')' 
+	[ const_decls ] 
+	[ var_decls ] 
+	{ function_decl }
+
+function_body ::=  
+	begin 
+	{ [ labelDef ] statement } 
+
+labelDef ::= label ':'
+
+formal_params ::=  { vname } // Not yet implemented [ '...' ]
+
+var_decls ::= var { vname [ array ] | record } 
+
+array ::= '[' posint ']' // an array of n consecutive slots, e.g. range[10]
+
+record ::= '{' vname { vname } '}' // the fields occupy consecutive slots and are in the same namspace as the other vars
+
+const_decls ::= const  cname '=' const_val { cname '=' const_val  }
+
+const_val ::= string | number | primitive | table_literal
+
+table_literal ::= '{' { [ vname '=' ] ( string | number | primitive ) } '}'
+
+desig ::= 
+	[ \LL:2\ fname '.' ] // function name to uniquely identify source of upvalue
+	vname [ '[' integer ']' ] // name[0] corresponds to name, name[1] to next in array or record, name[-1] to prev
+
+statement ::= ISLT_ |  ISGE_ | ISLE_ | ISGT_ | ISEQ_ | ISNE_
+	| ISTC_ | ISFC_ | IST_ | ISF_ | MOV_ | NOT_ | UNM_ | LEN_ 
+	| ADD_ | SUB_ | MUL_ | DIV_ | MOD_
+	| POW_ | CAT_ | KSET_ | KNIL_ | UGET_ | USET_
+	| UCLO_ | FNEW_ | TNEW_ | TDUP_ | GGET_ | GSET_ | TGET_ | TSET_
+	| CALL_ | CALLT_ | RET_ | FORI_ | FORL_ | LOOP_ | JMP_
+
+ISLT_ ::= ISLT desig desig
+ISGE_ ::= ISGE desig desig
+ISLE_ ::= ISLE desig desig
+ISGT_ ::= ISGT desig desig
+
+ISEQ_ ::= ISEQ desig ( desig | string | number | primitive ) 
+// = ISEQV, ISEQS, ISEQN and ISEQP, desig includes cname
+
+ISNE_ ::= ISNE desig ( desig | string | number | primitive )
+// = ISNEV, ISNES, ISNEN and ISNEP, desig includes cname
+
+ISTC_ ::= ISTC desig desig
+ISFC_ ::= ISFC desig desig
+IST_ ::= IST desig
+ISF_ ::= ISF desig
+
+MOV_ ::= MOV desig desig
+
+NOT_ ::= NOT desig desig
+UNM_ ::= UNM desig desig 
+
+LEN_ ::= LEN desig desig
+
+ADD_ ::= ADD desig ( desig | number ) ( desig | number )
+SUB_ ::= SUB desig ( desig | number ) ( desig | number )
+MUL_ ::= MUL desig ( desig | number ) ( desig | number )
+DIV_ ::= DIV desig ( desig | number ) ( desig | number )
+MOD_ ::= MOD desig ( desig | number ) ( desig | number )
+// = xVN, xNV and xVV, desig includes cname
+
+POW_ ::= POW desig desig desig
+CAT_ ::= CAT desig desig [ posint ] // posint: number of slots to cat, all to end of record/array if left out
+
+KSET_ ::= KSET desig ( string | number | primitive | cname )
+// = KSTR, KCDATA, KSHORT, KNUM and KPRI
+KNIL_ ::= KNIL desig [ posint ] // posint: number of slots to cat, all to end of record/array if left out
+
+UGET_ ::= UGET desig desig
+USET_ ::= USET desig ( string | number | primitive | desig )
+// = USETV, USETS, USETN and USETP, desig includes cname
+
+UCLO_ ::= UCLO desig [ \LA: 1:ident & 2:!':' \ label ] 
+FNEW_ ::= FNEW desig fname
+
+TNEW_ ::= TNEW desig [ posint [ posint ] ] // optional array size and hash size
+TDUP_ ::= TDUP desig ( cname | table_literal )
+GGET_ ::= GGET desig ( string | cname )
+GSET_ ::= GSET desig ( string | cname )
+TGET_ ::= TGET desig desig ( desig | string | posint )
+// = TGETV, TGETS and TGETB; desig includes cname
+TSET_ ::= TSET desig desig ( desig | string | posint )
+// = TSETV, TSETS and TSETB; desig includes cname
+
+CALL_ ::= CALL desig posint posint // number of return values, number of arguments
+CALLT_ ::= CALLT desig posint // number of arguments
+
+RET_ ::= RET [ \LL:2\ desig [ posint ] ] // number of returns, leave out if 1
+// = RET, RET0, RET1
+
+FORI_ ::= FORI desig label
+FORL_ ::= FORL desig label
+LOOP_ ::= LOOP
+JMP_ ::= JMP label
+
+// Not yet implemented operators
+// TSETM, CALLM, CALLMT, RETM, VARG, ITERC, ITERN, ITERN
+
+// The following operators are LJ internal and not subject of the assembler
+// xFUNCy, I/J(FORI|FORL|ITERL)
+
+primitive ::= nil | true | false
+
+label ::= ident 		// jump label name
+vname ::= ident 	// variable name
+cname ::= ident 	// constant name
+fname ::= ident 	// function name
+
+number ::= real | integer
+integer ::= negint | posint
+
+ident ::=
+string ::=
+real ::=
+posint ::=
+negint ::=
+comment- ::= '--' '--[' ']--'
+Comment ::=
+
+/// Pragmas
+%module ::= 'LjTools'
+%namespace ::= 'Ljas'
+

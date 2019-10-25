@@ -428,26 +428,48 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             break;
         case BC_FORI:
             {
-                const quint32 index = getSlotVal(f,bc.d_a).toUInt();
-                const quint32 max = getSlotVal(f,bc.d_a+1).toUInt();
-                setSlotVal(f,bc.d_a+3,index);
-                f.d_pc++;
-                if( index > max )
+                const qint32 idx = getSlotVal(f,bc.d_a).toInt();
+                const qint32 stop = getSlotVal(f,bc.d_a+1).toInt();
+                const qint32 step = getSlotVal(f,bc.d_a+2).toInt();
+                Slot* extIdxSlot = getSlot(f,bc.d_a+3);
+                setSlotVal(f,bc.d_a+3,idx);
+                f.d_pc++; // relative to next instruction
+                // All *FOR* instructions check that idx <= stop (if step >= 0 ) or idx >= stop (if step < 0 )
+                if( step >= 0 && idx <= stop || step < 0 && idx >= stop )
+                {
+                    // If true, idx is copied to the ext idx slot (visible loop variable in the loop body)
+                    extIdxSlot->d_val = idx;
+                    // Then the loop body is entered
+                }else
+                    // Otherwise, the loop is left by continuing with the next instruction after the *FORL .
                     f.d_pc += bc.getCd();
             }
             break;
         case BC_FORL:
             {
-                Slot* index = getSlot(f,bc.d_a);
-                const quint32 step = getSlotVal(f,bc.d_a+2).toUInt();
-                index->d_val = index->d_val.toUInt() + step;
-                f.d_pc += bc.getCd();
+                Slot* idxSlot = getSlot(f,bc.d_a);
+                const qint32 stop = getSlotVal(f,bc.d_a+1).toInt();
+                const qint32 step = getSlotVal(f,bc.d_a+2).toInt();
+                Slot* extIdxSlot = getSlot(f,bc.d_a+3);
+                // The FORL instructions does idx = idx + step first
+                const qint32 idx = idxSlot->d_val.toInt() + step;
+                idxSlot->d_val = idx;
+                f.d_pc++; // relative to next instruction
+                // All *FOR* instructions check that idx <= stop (if step >= 0 ) or idx >= stop (if step < 0 )
+                if( step >= 0 && idx <= stop || step < 0 && idx >= stop )
+                {
+                    // If true, idx is copied to the ext idx slot (visible loop variable in the loop body)
+                    extIdxSlot->d_val = idx;
+                    // Then the loop body is entered
+                    f.d_pc += bc.getCd();
+                } // else
+                    // Otherwise, the loop is left by continuing with the next instruction after the *FORL .
             }
             break;
         case BC_LOOP:
             f.d_pc++;
             break;
-            // Pending: ITERL
+            // TODO Pending: ITERL
 
         // Unary Test and Copy ops (fully implemented) **********************************
         case BC_ISTC:
@@ -483,7 +505,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             for( int i = bc.d_a; i < ( bc.d_a + bc.getCd() - 2 ); i++ )
                 inout.append( getSlotVal( f, i ) );
             return true;
-            // Pending: RETM
+            // TODO Pending: RETM
 
         // Unary ops (fully implemented) **********************************
         case BC_MOV:
@@ -692,7 +714,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 f.d_pc++;
             }
             break;
-            // Pending: TSETM
+            // TODO Pending: TSETM
             // Operand D of TSETM points to a biased floating-point number in the constant table. Only the
             // lowest 32 bits from the mantissa are used as a starting table index. MULTRES from the previous
             // bytecode gives the number of table slots to fill.
@@ -790,7 +812,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 f.d_pc++;
             }
             break;
-            // Pending: CALLM, CALLMT, CALLT, ITERC, ITERN, VARG, ISNEXT
+            // TODO Pending: CALLM, CALLMT, CALLT, ITERC, ITERN, VARG, ISNEXT
 
         // Bad exit **********************************
         default:
