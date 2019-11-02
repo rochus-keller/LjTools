@@ -323,7 +323,6 @@ bool Assembler::processParams(SynTree* hdr, Assembler::Func* me )
         Var* s = new Var();
         s->d_name = p->d_tok.d_val;
         s->d_slot = i; // allocate already here
-        s->d_idx = i;
         s->d_to = 1; // mark all params as being used. TODO: why is this? can't we reuse param slots?
         me->d_names.insert( s->d_name, s );
         me->d_params.append( s );
@@ -431,7 +430,6 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                 {
                     Var* vv = new Var();
                     vv->d_name = name;
-                    vv->d_idx = j+1; // to differ from non-grouped vars
                     if( prev )
                     {
                         prev->d_next = vv;
@@ -460,7 +458,6 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                     return error( name, tr("variable name not unique") );
                 Var* vv = new Var();
                 vv->d_name = name->d_tok.d_val;
-                vv->d_idx = j;
                 if( prev )
                 {
                     prev->d_next = vv;
@@ -1192,136 +1189,7 @@ bool Assembler::checkJumps(Assembler::Stmts& stmts, const Assembler::Labels& lbl
 
 bool Assembler::sortVars1( Assembler::Var* lhs, Assembler::Var* rhs )
 {
-    return lhs->d_from < rhs->d_from || (!(rhs->d_from < lhs->d_from) && lhs->d_idx < rhs->d_idx);
-}
-
-bool Assembler::sortVars2( Assembler::Var* lhs, Assembler::Var* rhs )
-{
-    return lhs->d_slot < rhs->d_slot || (!(rhs->d_slot < lhs->d_slot) && lhs->d_idx < rhs->d_idx);
-}
-
-bool Assembler::allocateRegisters(Assembler::Func* me)
-{
-#if 1
-    Intervals vars;
-    Func::Names::const_iterator ni;
-    for( ni = me->d_names.begin(); ni != me->d_names.end(); ++ni )
-    {
-        Var* v = ni.value()->toVar();
-        if( v )
-        {
-            if( v->isUnused() )
-                ; // qDebug() << v->d_name << "of" << me->d_name << "not used";
-            else if( !v->isFixed() ) // params are fix allocated, don't consider them here
-                vars << Interval(v->d_from,v->d_to,v);
-        }
-    }
-    QBitArray pool(LJ_MAX_SLOTS);
-    for( int i = 0; i < me->d_params.size(); i++ )
-        pool.setBit(i);
-
-    if( !allocateWithLinearScan( pool, vars, 1 ) )
-         return error( me->d_st, tr("function requires more slots than supported") );
-
-#ifdef _DEBUG
-    // std::sort( vars.begin(), vars.end(), sortVars2 );
-    qDebug() << "*** locals of" << me->d_name;
-    for( int i = 0; i < me->d_params.size(); i++ )
-        qDebug() << "local" << me->d_params[i]->d_name << "slot" << me->d_params[i]->d_slot <<
-                    "f/t/i" << me->d_params[i]->d_from << me->d_params[i]->d_to << me->d_params[i]->d_idx;
-#endif
-    for( int i = 0; i < vars.size(); i++ )
-    {
-        Var* v = (Var*)vars[i].d_payload;
-        v->d_slot = vars[i].d_slot;
-#ifdef _DEBUG
-        qDebug() << "local" << v->d_name << "slot" << v->d_slot <<
-                    "f/t/i" << v->d_from << v->d_to << v->d_idx;
-#endif
-    }
-
-#else
-    QList<Var*> vars;
-    Func::Names::const_iterator ni;
-    for( ni = me->d_names.begin(); ni != me->d_names.end(); ++ni )
-    {
-        Var* v = ni.value()->toVar();
-        if( v )
-        {
-            if( v->isUnused() )
-                ; // qDebug() << v->d_name << "of" << me->d_name << "not used";
-            else if( v->d_from != 0 ) // params are fix allocated, don't consider them here
-                vars << v;
-        }
-    }
-
-    // according to Poletto & Sarkar (1999): Linear scan register allocation, ACM TOPLAS, Volume 21 Issue 5
-    std::sort( vars.begin(), vars.end(), sortVars1 );
-#ifdef _DEBUG
-    qDebug() << "**** intervals";
-    for(int i = 0; i < vars.size(); i++ )
-        qDebug() << vars[i]->d_name << vars[i]->d_from << vars[i]->d_to << vars[i]->d_idx;
-#endif
-
-    QBitArray pool(LJ_MAX_SLOTS);
-    for( int i = 0; i < me->d_params.size(); i++ )
-        pool.setBit(i);
-
-    if( !linearScanAllocator( pool, vars, me ) )
-        return false;
-
-#ifdef _DEBUG
-    // std::sort( vars.begin(), vars.end(), sortVars2 );
-    qDebug() << "*** locals of" << me->d_name;
-    for( int i = 0; i < me->d_params.size(); i++ )
-        qDebug() << "local" << me->d_params[i]->d_name << "slot" << me->d_params[i]->d_slot <<
-                    "f/t/i" << me->d_params[i]->d_from << me->d_params[i]->d_to << me->d_params[i]->d_idx;
-    for( int i = 0; i < vars.size(); i++ )
-        qDebug() << "local" << vars[i]->d_name << "slot" << vars[i]->d_slot <<
-                    "f/t/i" << vars[i]->d_from << vars[i]->d_to << vars[i]->d_idx;
-#endif
-#endif
-
-    return true;
-}
-
-bool Assembler::allocateRegisters2(Assembler::Func* me)
-{
-    // trivial allocator
-    // does not work
-    QList<Var*> vars;
-    Func::Names::const_iterator ni;
-    for( ni = me->d_names.begin(); ni != me->d_names.end(); ++ni )
-    {
-        Var* v = ni.value()->toVar();
-        if( v )
-        {
-            if( v->isUnused() )
-                ; // qDebug() << v->d_name << "of" << me->d_name << "not used";
-            else if( v->d_from != 0 ) // params are fix allocated, don't consider them here
-                vars << v;
-        }
-    }
-
-    std::sort( vars.begin(), vars.end(), sortVars1 );
-
-    int slot = me->d_params.size();
-    for( int i = 0; i < vars.size(); i++ )
-    {
-        vars[i]->d_slot = slot++;
-    }
-
-#ifdef _DEBUG
-    qDebug() << "*** locals of" << me->d_name;
-    for( int i = 0; i < me->d_params.size(); i++ )
-        qDebug() << "local" << me->d_params[i]->d_name << "slot" << me->d_params[i]->d_slot <<
-                    "f/t/i" << me->d_params[i]->d_from << me->d_params[i]->d_to << me->d_params[i]->d_idx;
-    for( int i = 0; i < vars.size(); i++ )
-        qDebug() << "local" << vars[i]->d_name << "slot" << vars[i]->d_slot <<
-                    "f/t/i" << vars[i]->d_from << vars[i]->d_to << vars[i]->d_idx << "n" << vars[i]->d_n;
-#endif
-
-    return true;
+    return lhs->d_from < rhs->d_from;
 }
 
 static void printPool( const QBitArray& pool, int len )
@@ -1557,42 +1425,6 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
     }
 #endif
 
-    return true;
-}
-
-bool Assembler::linearScanAllocator(QBitArray& pool, Assembler::VarList& vars , Func* me)
-{
-    // according to Poletto & Sarkar (1999): Linear scan register allocation, ACM TOPLAS, Volume 21 Issue 5
-
-    std::sort( vars.begin(), vars.end(), sortVars1 );
-
-    typedef QMultiMap<quint32,Var*> Active; // endpoint -> Var
-    Active active;
-
-    for( int i = 0; i < vars.size(); i++ )
-    {
-        Active::iterator j = active.begin();
-        while( j != active.end() )
-        {
-            // ExpireOldIntervals(i)
-            if( j.value()->d_to >= vars[i]->d_from )
-            {
-//                qDebug() << "keep" << j.value()->d_name << "to" << j.value()->d_to
-//                         << "compared with" << vars[i]->d_name << vars[i]->d_from;
-                break;
-            }
-//            qDebug() << "deactivate" << j.value()->d_name << "slot" << j.value()->d_slot
-//                        << "compared with" << vars[i]->d_name << vars[i]->d_from;
-            pool.clearBit(j.value()->d_slot);
-            j = active.erase(j);
-        }
-        int slot = nextFreeSlot(pool);
-        if( active.size() >= LJ_MAX_SLOTS || slot < 0 )
-            return error( me->d_st, tr("function requires more slots than supported") );
-        // qDebug() << "activate" << vars[i]->d_name << "slot" << slot;
-        vars[i]->d_slot = slot;
-        active.insert(vars[i]->d_to, vars[i]);
-    }
     return true;
 }
 

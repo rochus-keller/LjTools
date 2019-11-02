@@ -62,15 +62,14 @@ namespace Ljas
         struct Var : public Named
         {
             uint d_from : 24;
-            uint d_idx : 8;
+            uint d_n : 8;   // number of consecutive slots required
             uint d_to : 23; // active range in bytecode list
             uint d_uv : 1; // used as upvalue
             uint d_slot : 8;
-            quint8 d_n; // TEST number of consecutive slots required
             Var* d_next;
             Var* d_prev;
             virtual bool isVar() const { return true; }
-            Var():d_from(0),d_to(0),d_slot(0),d_next(0),d_prev(0),d_uv(0),d_idx(0),d_n(1){}
+            Var():d_from(0),d_to(0),d_slot(0),d_next(0),d_prev(0),d_uv(0),d_n(1){}
             bool isUnused() const;
             bool isFixed() const;
             QPair<int,int> bounds() const; // from to of all n
@@ -126,17 +125,13 @@ namespace Ljas
         bool fetchCsnp( SynTree*, Stmt&, Func* );
         bool fetchVcn( SynTree*, Stmt&, Func* );
         bool checkJumps( Stmts&, const Labels& );
-        bool allocateRegisters( Func* me );
-        bool allocateRegisters2( Func* me );
         bool allocateRegisters3(Func* me );
-        bool linearScanAllocator( QBitArray&, VarList&,Func* me );
         bool checkSlotOrder(const Stmts& stmts);
         Named* derefDesig( SynTree*, Func*, bool onlyLocalVars = true );
         static SynTree* findFirstChild(const SynTree*, int type , int startWith = 0);
         static SynTree* flatten( SynTree*, int stopAt = 0 );
         bool error( SynTree*, const QString& );
         static bool sortVars1( Var* lhs, Var* rhs );
-        static bool sortVars2( Var* lhs, Var* rhs );
         static bool checkSlotOrder( const Var*, int n );
         static Var* toVar( const QVariant& );
         static void findOverlaps( VarList&, Var* header );
