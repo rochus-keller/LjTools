@@ -21,6 +21,7 @@
 #include "LjasErrors.h"
 #include <QBitArray>
 #include <QtDebug>
+#include <QElapsedTimer>
 using namespace Ljas;
 using namespace Lua;
 
@@ -127,7 +128,11 @@ bool Assembler::process(SynTree* st, const QByteArray& sourceRef)
     d_ref = sourceRef;
 
     Func top;
-    if( processFunc( st, &top ) )
+    QElapsedTimer t;
+    t.start();
+    const bool res = processFunc( st, &top );
+    qDebug() << "Assembler::process runtime [ms]:" << t.elapsed();
+    if( res )
     {
         // TODO convert composer to BC
         return true;
@@ -158,6 +163,57 @@ Assembler::Var*Assembler::toVar(const QVariant& v)
         return n->toVar();
     else
         return 0;
+}
+
+void Assembler::findOverlaps(Assembler::VarList& out, Assembler::Var* header)
+{
+    // v0 v1 v2 v3
+    //       u0 u1 u2
+    Var* v = header->d_next;
+    int n = header->d_n - 1;
+    bool headerRegistered = false;
+    while( v && n-- > 0 )
+    {
+        if( v->d_n > 1 )
+        {
+            if( !headerRegistered && !out.contains(header) )
+            {
+                headerRegistered = true;
+                out << header;
+            }
+            if( !out.contains(v) )
+                out << v;
+            findOverlaps(out, v );
+        }
+        v = v->d_next;
+    }
+}
+
+void Assembler::resolveOverlaps(const Assembler::VarList& l)
+{
+    for( int i = l.size() - 1; i > 0; i-- )
+    {
+        Var* v = l[i];
+        int off = 0;
+        Var* h = v;
+        while( h )
+        {
+            h = h->d_prev;
+            off++;
+            if( h && h->d_n > 1 )
+                break;
+        }
+        Q_ASSERT( h != 0 && h == l[i-1] );
+
+        // h0 h1 h2 h3
+        //          v0 v1 v2
+        // off = 3, rem = 2
+        // h0 h1 h2 h3
+        //    v0 v1 v2
+        // off = 1, rem = 0
+        h->d_n += qMax( off + v->d_n - h->d_n, 0 );
+        v->d_n = 0; // so no further overlap correction occurs
+    }
 }
 
 bool Assembler::processFunc(SynTree* st, Func* outer)
@@ -1284,8 +1340,8 @@ static void printPool( const QBitArray& pool, int len )
 bool Assembler::allocateRegisters3(Assembler::Func* me)
 {
     // collect all pending registers which are part of an array
-    QSet<Var*> arrays;
-    QList<Var*> headers, overlaps, all;
+    QSet<Var*> arrays,overlaps;
+    QList<Var*> headers, all;
     Func::Names::const_iterator ni;
     for( ni = me->d_names.begin(); ni != me->d_names.end(); ++ni )
     {
@@ -1294,22 +1350,44 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
             all << v;
         if( v && v->d_n > 1 && !v->isUnused() && !v->isFixed() )
         {
-            headers << v;
-
-            // overlaps are only possible for Vars which belong to the same group or array
-            // it is sufficient to only register the overlaping header
-            if( arrays.contains(v) )
-                overlaps << v;
-
+            Var* h = v;
+            headers << h;
             int n = v->d_n;
             while( v && n > 0 )
             {
-                arrays << v;
+                // overlaps are only possible for Vars which belong to the same group or array
+                // it is sufficient to only register the overlaping header
+                if( arrays.contains(v) )
+                    overlaps << h;
+                else
+                    arrays << v;
                 v = v->d_next;
                 n--;
             }
         }
     }
+
+#ifdef _DEBUG
+    std::sort( all.begin(), all.end(), sortVars1 );
+#endif
+#ifdef _DEBUG_
+    qDebug() << "*** locals of" << me->d_name << "before allocation";
+    foreach( Var* v, all )
+    {
+        QString str;
+        if( arrays.contains(v) )
+            str += "array ";
+        if( overlaps.contains(v) )
+            str += "overlap";
+        qDebug() << QString("%1\tf/t:%2-%3\tn:%4\t %5").arg(v->d_name.constData())
+                        .arg(v->d_from).arg(v->d_to).arg(v->d_n).arg(str).toUtf8().constData();
+    }
+#endif
+
+    // prepare slot pool and enter all params (which are fix allocated)
+    QBitArray pool(LJ_MAX_SLOTS);
+    for( int i = 0; i < me->d_params.size(); i++ )
+        pool.setBit(i);
 
     // collect all pending registers which use only one slot and handle these first
     Intervals vars;
@@ -1317,13 +1395,19 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
     {
         Var* v = ni.value()->toVar();
         if( v && !v->isUnused() && !arrays.contains(v) && !v->isFixed() )
-            vars << Interval(v->d_from,v->d_to,v);
+        {
+            Q_ASSERT( v->d_n == 1 );
+            if( v->d_uv )
+            {
+                // Do fix allocation for each slot used as upvalue
+                const int slot = nextFreeSlot(pool);
+                if( slot < 0 )
+                    return error( me->d_st, tr("running out of slots for up values") );
+                v->d_slot = slot;
+            }else
+                vars << Interval(v->d_from,v->d_to,v);
+        }
     }
-
-    // prepare slot pool and enter all params (which are fix allocated)
-    QBitArray pool(LJ_MAX_SLOTS);
-    for( int i = 0; i < me->d_params.size(); i++ )
-        pool.setBit(i);
 
     // allocate the scalars
     if( !allocateWithLinearScan( pool, vars, 1 ) )
@@ -1332,26 +1416,50 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         static_cast<Var*>(vars[i].d_payload)->d_slot = vars[i].d_slot;
     //printPool(pool,all.size());
 
-//    if( me->d_name == "F66" )
-//        qDebug() << "hit";
-
     // resolve overlaps
+#if 1
+    foreach( Var* h, headers )
+    {
+        if( h->d_n == 0 )
+            continue;
+        // go rightward to find the end of a successing header without overlap
+        VarList overlap;
+        findOverlaps( overlap, h );
+#ifdef _DEBUG_
+        if( !overlap.isEmpty() )
+        {
+            qDebug() << "**** pending overlap cluster" << me->d_name;
+            foreach( Var* v, overlap )
+                qDebug() << QString("%1\tf/t:%2-%3\tn:%4").arg(v->d_name.constData())
+                                .arg(v->d_from).arg(v->d_to).arg(v->d_n).toUtf8().constData();
+        }
+#endif
+        resolveOverlaps( overlap );
+#ifdef _DEBUG_
+        if( !overlap.isEmpty() )
+        {
+            qDebug() << "**** resolved overlap cluster" << me->d_name;
+            foreach( Var* v, overlap )
+                qDebug() << QString("%1\tf/t:%2-%3\tn:%4").arg(v->d_name.constData())
+                                .arg(v->d_from).arg(v->d_to).arg(v->d_n).toUtf8().constData();
+        }
+#endif
+    }
+
+#else
     if( !overlaps.isEmpty() )
     {
-        QSet<Var*> done;
-        for( int i = overlaps.size() - 1; i >= 0; i-- )
+        QSet<Var*>::const_iterator i;
+        for( i = overlaps.begin(); i != overlaps.end(); ++i )
         {
-            Var* v = overlaps[i];
-            if( done.contains(v) )
-                continue;
-            done.insert(v);
+            Var* v = (*i);
             int off = 0;
             Var* h = v;
             while( h )
             {
                 h = h->d_prev;
                 off++;
-                if( h->d_n > 1 )
+                if( h && h->d_n > 1 )
                     break;
             }
             if( h )
@@ -1362,20 +1470,44 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
                 // h0 h1 h2 h3
                 //    v0 v1 v2
                 // off = 1, rem = 0
-                const quint8 old = h->d_n;
                 h->d_n += qMax( off + v->d_n - h->d_n, 0 );
-//                if( old != h->d_n )
-//                    qDebug() << "changed" << me->d_name << h->d_name << "from" << old <<
-//                            "to" << h->d_n << "because" << v->d_name;
+                v->d_n = 0; // so no further overlap correction occurs
                 headers.removeAll(v);
             }else
-                Q_ASSERT_X( false, "Assembler::allocateRegisters3", "false overlap" );
+            {
+                // v is the top array which is overlapped with succeeding arrays but has no overarching array
+                off = 0;
+                h = v;
+                while( h )
+                {
+                    h = h->d_next;
+                    off++;
+                    if( h && h->d_n > 1 )
+                        break;
+                }
+                if( h == 0 || off + 1 > v->d_n )
+                    Q_ASSERT( false );
+                else
+                {
+                    // v0 v1
+                    //    h0 h1 h2 off = 1
+                    // v0 v1 v2 v3
+                    //    h0 h1 off=1
+                    v->d_n += qMax( off + h->d_n - v->d_n, 0 );
+                    h->d_n = 0; // so no further overlap correction occurs
+                    headers.removeAll(h);
+                }
+            }
         }
     }
+#endif
 
     QMap<quint8,VarList> headersByN;
     foreach( Var* h, headers )
-        headersByN[h->d_n].append(h);
+    {
+        if( h->d_n ) // no longer interested in resolved overlaping headers
+            headersByN[h->d_n].append(h);
+    }
 
     QMap<quint8,VarList>::const_iterator i;
     for( i = headersByN.begin(); i != headersByN.end(); ++i )
@@ -1400,6 +1532,8 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
             while( n-- > 0 )
             {
                 Q_ASSERT( v != 0 );
+                if( v->d_uv ) // v can be both a header or an element of the array!
+                    qWarning() << me->d_name << "using slot" << v->d_name << "which is part of array as upvalue";
                 v->d_slot = vars[j].d_slot++;
                 v = v->d_next;
             }
@@ -1407,8 +1541,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
     }
 
 #ifdef _DEBUG_
-    qDebug() << "*** locals of" << me->d_name;
-    std::sort( all.begin(), all.end(), sortVars1 );
+    qDebug() << "*** locals of" << me->d_name << "after allocation";
     for( int i = 0; i < all.size(); i++ )
         qDebug() << QString("%1\tf/t:%2-%3\tn:%4\ts:%5").arg(all[i]->d_name.constData())
                     .arg(all[i]->d_from).arg(all[i]->d_to).arg(all[i]->d_n).arg(all[i]->d_slot).toUtf8().constData();

@@ -139,6 +139,8 @@ namespace Ljas
         static bool sortVars2( Var* lhs, Var* rhs );
         static bool checkSlotOrder( const Var*, int n );
         static Var* toVar( const QVariant& );
+        static void findOverlaps( VarList&, Var* header );
+        static void resolveOverlaps( const VarList& );
     private:
         Errors* d_errs;
         Lua::JitComposer d_comp;
