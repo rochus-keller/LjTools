@@ -22,6 +22,7 @@
 #include <QtDebug>
 #include <QSet>
 #include <QTextStream>
+#include <QFile>
 using namespace Ljas;
 using namespace Lua;
 
@@ -46,10 +47,21 @@ static inline QByteArray ws(int level)
     return QByteArray(level,'\t');
 }
 
+static inline QByteArray varName( const QByteArray& name, int v )
+{
+    if( name.startsWith('(') )
+    {
+        return "R" + QByteArray::number(v);
+    }else
+        return name;
+}
+
 bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int level)
 {
     if( f == 0 )
         return false;
+
+    f->calcVarNames();
 
     out << ws(level) << "function F" << f->d_id << "(";
     for( int i = 0; i < f->d_numparams; i++ )
@@ -71,13 +83,17 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
         out << "\t-- lines "<< f->d_firstline << " to " << f->d_firstline + f->d_numline;
     out << endl;
 
+#if 0
     QHash<QByteArray,int> unique;
-    SlotMap reverse;
-    if( f->d_framesize > f->d_numparams || f->d_framesize && f->d_vars.isEmpty() )
+    for( int i = 0; i < f->d_numparams && i < f->d_vars.size(); i++ )
+        unique.insert( f->d_vars[i].d_name,i);
+
+    if( f->d_framesize > f->d_numparams || f->d_framesize != 0 && f->d_vars.isEmpty() )
     {
+        // print variable declarations
         QByteArray buf;
         buf = ws(level+1);
-        buf += "var ";
+        buf += "var\t";
         if( f->d_vars.size() > f->d_numparams )
         {
             buf += "{ ";
@@ -85,18 +101,14 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
             {
                 QByteArray name = f->d_vars[i].d_name;
                 if( name.startsWith('(') )
-                {
-                    //qDebug() << "internal var" << name;
-                    name = "__t" + QByteArray::number(i);
-                }
+                    continue; // don't use these as vars; they're used as Rx instead
 
                 if( unique.contains(name) )
                 {
-                    //qDebug() << "double ident" << name;
-                    name += "_" + QByteArray::number(i);
+                    // qDebug() << "duplicate var" << name;
+                    continue;
                 }
                 unique.insert(name,i);
-                reverse.insert(i,name);
                 buf += name + " ";
                 if( buf.size() > 80 )
                 {
@@ -104,21 +116,121 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
                     buf = ws(level+2);
                 }
             }
-            buf += " } ";
+            buf += "} ";
         }
         out << buf;
+#ifdef _USE_REGISTER_ARRAY_
         if( f->d_framesize > 0 )
         {
             out << "T[" << f->d_framesize << "]" << endl;
         }
-        out << endl;
+#else
+        buf.clear();
+        if( f->d_vars.size() > f->d_numparams )
+        {
+            out << endl;
+            buf = ws(level+2);
+        }
+        buf += "{ ";
+        for( int i = 0; i < qMax( int(f->d_framesize), unique.size() ); i++ )
+        {
+            buf += "R" + QByteArray::number( i ) + " ";
+            if( buf.size() > 80 )
+            {
+                out << buf << endl;
+                buf = ws(level+2);
+            }
+        }
+        buf += "} ";
+        out << buf << endl;
+#endif
     }
+#else
+    // print variable declarations
+    QHash<QByteArray,int> unique;
+    QByteArray buf;
+    buf = ws(level+1);
+    buf += "var\t";
+    if( f->d_vars.size() > f->d_numparams )
+    {
+        buf += "{ ";
+        for( int i = f->d_numparams; i < f->d_varNames.size(); i++ )
+        {
+            QByteArray name = f->d_varNames[i];
+            if( name.isEmpty() )
+                continue;
+            if( name.startsWith('(') )
+                continue; // don't use these as vars; they're used as Rx instead
 
+            if( unique.contains(name) )
+                continue;
+            unique.insert(name,i);
+
+            buf += name + " ";
+            if( buf.size() > 80 )
+            {
+                out << buf << endl;
+                buf = ws(level+2);
+            }
+        }
+        buf += "} ";
+    }
+    // print Rx declarations
+    out << buf;
+    buf.clear();
+    if( f->d_vars.size() > f->d_numparams )
+    {
+        out << endl;
+        buf = ws(level+2);
+    }
+    buf += "{ ";
+    for( int i = 0; i < f->d_framesize; i++ )
+    {
+        buf += "R" + QByteArray::number( i ) + " ";
+        if( buf.size() > 80 )
+        {
+            out << buf << endl;
+            buf = ws(level+2);
+        }
+    }
+    buf += "} ";
+    out << buf << endl;
+
+#endif
+
+#ifdef _DEBUG_
+        for( int i = 0; i < f->d_vars.size(); i++ )
+            out << ws(level+2) << "-- " << f->d_vars[i].d_name << " pc " <<
+                   f->d_vars[i].d_startpc << " to " << f->d_vars[i].d_endpc << endl;
+#endif
+#ifdef _DEBUG_
+        QFile dbg(QString("F%1_vars.txt").arg(f->d_id));
+        dbg.open(QIODevice::WriteOnly);
+        QTextStream out2(&dbg);
+        for( int pc = 0; pc < f->d_byteCodes.size(); pc++ )
+        {
+            QByteArray str = "pc" + QByteArray::number(pc+2) + "\t";
+            for( int slot = 0; slot < f->d_framesize; slot++ )
+            {
+                const QByteArray name = f->getVarName(pc,slot);
+                if( !name.isEmpty() )
+                    str += "s" + QByteArray::number(slot) + ":" + name + "\t";
+            }
+            out2 << str << endl;
+            //out << ws(level+2) << "-- " << str << endl;
+        }
+#endif
+
+    int funCount = 0;
     for( int i = f->d_constObjs.size() - 1; i >= 0; i-- )
     {
         const QVariant& o = f->d_constObjs[i];
         if( o.canConvert<JitBytecode::FuncRef>() )
+        {
+            if( funCount++ == 0 )
+                out << endl;
             writeFunc(out, o.value<JitBytecode::FuncRef>().constData(), level+1 );
+        }
     }
 
     if( !f->d_byteCodes.isEmpty() )
@@ -133,11 +245,12 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
                 labels.insert( pc + 1 + bc.getCd() );
         }
 
+        int lastLine = 0;
         for( int pc = 0; pc < f->d_byteCodes.size(); pc++ )
         {
             if( labels.contains(pc) )
                 out << ws(level) << "__L" << pc << ":" << endl;
-            const JitBytecode::Instruction bc = JitBytecode::dissectInstruction(f->d_byteCodes[pc]);
+            JitBytecode::Instruction bc = JitBytecode::dissectInstruction(f->d_byteCodes[pc]);
             out << ws(level+1);
             switch( bc.d_op )
             {
@@ -201,9 +314,75 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
             case JitBytecode::OP_TSETB:
                 out << "TSET";
                 break;
-            case JitBytecode::OP_RET0:
-            case JitBytecode::OP_RET1:
+            case JitBytecode::OP_RET:
                 out << "RET";
+                bc.d_tcd--;
+                break;
+            case JitBytecode::OP_RET0:
+                out << "RET";
+                bc.d_tcd = JitBytecode::Instruction::Unused;
+                bc.d_ta = JitBytecode::Instruction::Unused;
+                break;
+           case JitBytecode::OP_RET1:
+                out << "RET";
+                bc.d_tcd = JitBytecode::Instruction::Unused;
+                break;
+            case JitBytecode::OP_KNIL:
+                out << "KNIL";
+                bc.d_cd = bc.d_cd - bc.d_a + 1;
+                if( bc.d_cd == 1 )
+                    bc.d_tcd = JitBytecode::Instruction::Unused;
+                else
+                    bc.d_tcd = JitBytecode::Instruction::_lit;
+                break;
+            case JitBytecode::OP_TNEW:
+                out << "TNEW";
+                bc.d_b = bc.d_cd & 0x7ff;  // lowest 11 bits
+                bc.d_cd = bc.d_cd >> 11; // upper 5 bits
+                bc.d_tb = JitBytecode::Instruction::_lit;
+                bc.d_tcd = JitBytecode::Instruction::_lit;
+                if( bc.d_cd == 0 && bc.d_b == 0 )
+                {
+                    bc.d_tcd = JitBytecode::Instruction::Unused;
+                    bc.d_tb = JitBytecode::Instruction::Unused;
+                }else if( bc.d_cd == 0 )
+                    bc.d_tcd = JitBytecode::Instruction::Unused;
+                break;
+            case JitBytecode::OP_CALL:
+                {
+                    out << "CALL";
+                    bc.d_cd--;
+                    if( bc.d_b >= 1 )
+                        bc.d_b = bc.d_b - 1;
+                    else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here TODO
+                        bc.d_b = 1;
+                    if( bc.d_b == 0 && bc.d_cd == 0 )
+                    {
+                        bc.d_tb = JitBytecode::Instruction::Unused;
+                        bc.d_tcd = JitBytecode::Instruction::Unused;
+                    }else if( bc.d_cd == 0 )
+                        bc.d_tcd = JitBytecode::Instruction::Unused;
+                }
+                break;
+            case JitBytecode::OP_CALLM:
+                {
+                    out << "CALL";
+                    // compared to CALL bc.d_cd is already the true number of args
+                    if( bc.d_b >= 1 )
+                        bc.d_b = bc.d_b - 1;
+                    else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here TODO
+                        bc.d_b = 1;
+                    if( bc.d_b == 0 && bc.d_cd == 0 )
+                    {
+                        bc.d_tb = JitBytecode::Instruction::Unused;
+                        bc.d_tcd = JitBytecode::Instruction::Unused;
+                    }else if( bc.d_cd == 0 )
+                        bc.d_tcd = JitBytecode::Instruction::Unused;
+                }
+                break;
+            case JitBytecode::OP_CALLT:
+                out << "CALLT";
+                bc.d_cd--;
                 break;
             default:
                 out << bc.d_name;
@@ -211,9 +390,9 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
             }
             out << " ";
 
-            const QByteArray a = renderArg(reverse,f,bc.d_ta,bc.d_a,pc);
-            const QByteArray b = renderArg(reverse,f,bc.d_tb,bc.d_b,pc);
-            const QByteArray c = renderArg(reverse,f,bc.d_tcd,bc.getCd(),pc);
+            const QByteArray a = renderArg(f,bc.d_ta,bc.d_a,pc);
+            const QByteArray b = renderArg(f,bc.d_tb,bc.d_b,pc);
+            const QByteArray c = renderArg(f,bc.d_tcd,bc.getCd(),pc);
             if( bc.d_op == JitBytecode::OP_LOOP )
             {
                 // NOP
@@ -229,6 +408,19 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
                 if( !c.isEmpty() )
                     out << " " << c;
             }
+
+#ifdef _DEBUG_
+            out << " -- #" << pc + 1;
+#endif
+            if( !f->isStripped() )
+            {
+                if( lastLine != f->d_lines[pc] )
+                {
+                    lastLine = f->d_lines[pc];
+                    out << "\t\t-- " << lastLine;
+                }
+            }
+
             out << endl;
         }
 
@@ -260,7 +452,7 @@ static QByteArray tostring(const QVariant& v)
         return v.toByteArray();
 }
 
-QByteArray Disasm::renderArg(const Disasm::SlotMap& sm, const JitBytecode::Function* f, int t, int v, int pc)
+QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int pc)
 {
     switch( t )
     {
@@ -271,11 +463,18 @@ QByteArray Disasm::renderArg(const Disasm::SlotMap& sm, const JitBytecode::Funct
     case JitBytecode::Instruction::_base:
     case JitBytecode::Instruction::_rbase:
         {
-            if( v < f->d_vars.size() && f->d_vars[v].d_startpc >= pc && pc <= f->d_vars[v].d_endpc && sm.contains(v) )
-                return sm.value(v);
-            else if( v < f->d_numparams && f->isStripped() )
+            // int idx;
+            // QByteArray name = varName(f->getVarName(pc, v, &idx ),idx);
+            QByteArray name = varName( v < f->d_varNames.size() ? f->d_varNames[v] : QByteArray(),v);
+            if( !name.isEmpty() )
+                return name;
+            if( v < f->d_numparams && f->isStripped() )
                 return "__p" + QByteArray::number(v);
+#ifdef _USE_REGISTER_ARRAY_
             return "T[" + QByteArray::number(v) + "]";
+#else
+            return "R" + QByteArray::number(v);
+#endif
         }
         break;
     case JitBytecode::Instruction::_str:
@@ -296,21 +495,24 @@ QByteArray Disasm::renderArg(const Disasm::SlotMap& sm, const JitBytecode::Funct
             const QPair<quint8, JitBytecode::Function*> up = f->getFuncSlotFromUpval(v);
             if( up.second == 0 )
                 return "???";
-#if 0
-            // TODO: this is an issue; not yet understand how to find this name with certainty; sometimes it works.
-            if( f->d_upNames[v] != up.second->d_vars[up.first].d_name )
-                qDebug() << "inequal upval name pc" << pc << "F" << f->d_id << f->d_upNames[v]
-                         << "F" << up.second->d_id << up.second->d_vars[up.first].d_name;
-#endif
+
+//            if( f->d_upNames[v] != up.second->getVarName(pc, up.first) ) // does not work because pc is not appropriate
+//                qDebug() << "inequal upval name pc" << pc << "F" << f->d_id << f->d_upNames[v]
+//                         << "F" << up.second->d_id << up.second->getVarName(pc, up.first);
+
             QByteArray quali;
             if( up.second != f )
                 quali = "F" + QByteArray::number(up.second->d_id) + ".";
-            if( v < f->d_upNames.size() )
-                return quali + f->d_upNames[v];
-            // if( up.first < up.second->d_vars.size() )
-                //return quali + up.second->d_vars[up.first].d_name;
+//            if( v < f->d_upNames.size() )
+//                return quali + f->d_upNames[v];
+            if( up.first < up.second->d_vars.size() )
+                return quali + up.second->d_varNames[up.first];
             else
+#ifdef _USE_REGISTER_ARRAY_
                 return quali + "T[" + QByteArray::number(up.first) + "]";
+#else
+                return quali + "R" + QByteArray::number(up.first);
+#endif
         }
         break;
     case JitBytecode::Instruction::_func:

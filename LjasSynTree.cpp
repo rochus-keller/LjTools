@@ -70,6 +70,7 @@ const char* SynTree::rToStr( quint16 r ) {
 		case R_record: return "record";
 		case R_statement: return "statement";
 		case R_table_literal: return "table_literal";
+		case R_var_decl: return "var_decl";
 		case R_var_decls: return "var_decls";
 		case R_vname: return "vname";
 	default: if(r<R_First) return tokenTypeName(r); else return "";

@@ -194,10 +194,7 @@ void Parser::var_decls() {
 		addTerminal(); 
 		while (la->kind == _T_Lbrace || la->kind == _T_ident) {
 			if (la->kind == _T_ident) {
-				vname();
-				if (la->kind == _T_Lbrack) {
-					array();
-				}
+				var_decl();
 			} else {
 				record();
 			}
@@ -395,14 +392,12 @@ void Parser::vname() {
 		d_stack.pop(); 
 }
 
-void Parser::array() {
-		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_array, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
-		Expect(_T_Lbrack,__FUNCTION__);
-		addTerminal(); 
-		Expect(_T_posint,__FUNCTION__);
-		addTerminal(); 
-		Expect(_T_Rbrack,__FUNCTION__);
-		addTerminal(); 
+void Parser::var_decl() {
+		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_var_decl, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
+		vname();
+		if (la->kind == _T_Lbrack) {
+			array();
+		}
 		d_stack.pop(); 
 }
 
@@ -415,6 +410,17 @@ void Parser::record() {
 			vname();
 		}
 		Expect(_T_Rbrace,__FUNCTION__);
+		addTerminal(); 
+		d_stack.pop(); 
+}
+
+void Parser::array() {
+		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_array, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
+		Expect(_T_Lbrack,__FUNCTION__);
+		addTerminal(); 
+		Expect(_T_posint,__FUNCTION__);
+		addTerminal(); 
+		Expect(_T_Rbrack,__FUNCTION__);
 		addTerminal(); 
 		d_stack.pop(); 
 }
@@ -951,10 +957,14 @@ void Parser::CALL_() {
 		Expect(_T_CALL,__FUNCTION__);
 		addTerminal(); 
 		desig();
-		Expect(_T_posint,__FUNCTION__);
-		addTerminal(); 
-		Expect(_T_posint,__FUNCTION__);
-		addTerminal(); 
+		if (la->kind == _T_posint) {
+			Get();
+			addTerminal(); 
+			if (la->kind == _T_posint) {
+				Get();
+				addTerminal(); 
+			}
+		}
 		d_stack.pop(); 
 }
 
@@ -963,8 +973,10 @@ void Parser::CALLT_() {
 		Expect(_T_CALLT,__FUNCTION__);
 		addTerminal(); 
 		desig();
-		Expect(_T_posint,__FUNCTION__);
-		addTerminal(); 
+		if (la->kind == _T_posint) {
+			Get();
+			addTerminal(); 
+		}
 		d_stack.pop(); 
 }
 
@@ -972,7 +984,7 @@ void Parser::RET_() {
 		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_RET_, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
 		Expect(_T_RET,__FUNCTION__);
 		addTerminal(); 
-		if (peek(1) == _T_ident && ( peek(2) == _T_Dot || peek(2) == _T_ident || peek(2) == _T_Lbrack || peek(2) == _T_posint ) ) {
+		if (peek(1) == _T_ident && !( peek(2) == _T_Colon ) ) {
 			desig();
 			if (la->kind == _T_posint) {
 				Get();

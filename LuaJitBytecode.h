@@ -71,10 +71,14 @@ namespace Lua
                 QByteArray d_name;
             };
             QList<Var> d_vars;
+            mutable QByteArrayList d_varNames; // fill by calcVarNames
             Function* d_outer;
 
             Function():d_isRoot(false),d_outer(0){}
 
+            const Var* findVar( int pc, int slot, int* idx = 0 ) const;
+            QByteArray getVarName( int pc, int slot, int* idx = 0 ) const;
+            void calcVarNames() const;
             bool isStripped() const { return d_lines.isEmpty() && d_upNames.isEmpty() && d_vars.isEmpty(); }
             quint16 getUpval( int i ) const { return d_upvals[i] & ~( UvImmutableMask | UvLocalMask ); }
             bool isLocalUpval( int i ) const { return d_upvals[i] & UvLocalMask; }
@@ -92,7 +96,8 @@ namespace Lua
                   OP_TGETS, OP_TGETB, OP_TSETV, OP_TSETS, OP_TSETB, OP_TSETM, OP_CALLM, OP_CALL, OP_CALLMT,
                   OP_CALLT, OP_ITERC, OP_ITERN, OP_VARG, OP_ISNEXT, OP_RETM, OP_RET, OP_RET0, OP_RET1,
                   OP_FORI, OP_JFORI, OP_FORL, OP_IFORL, OP_JFORL, OP_ITERL, OP_IITERL, OP_JITERL, OP_LOOP,
-                  OP_ILOOP, OP_JLOOP, OP_JMP // FUNCF ff are not supported here
+                  OP_ILOOP, OP_JLOOP, OP_JMP, // FUNCF ff are not supported here
+                  OP_INVALID = 255
                 };
 
         struct Instruction
@@ -119,7 +124,7 @@ namespace Lua
             };
             static const char* s_typeName[];
             const char* d_name;
-            quint8 d_a, d_b;
+            quint16 d_a, d_b; // quint16 instead of quint8 so that Disasm can reuse the fields for numbers
             quint16 d_cd;
             quint8 d_ta, d_tb, d_tcd;
             quint8 d_op; // enum Op
@@ -150,6 +155,8 @@ namespace Lua
         static Instruction::FieldType typeBFromOp(quint8);
         static bool isNumber( const QVariant& );
         static bool isString( const QVariant& );
+        static bool isPrimitive( const QVariant& );
+        static const char* nameOfOp(int op );
     protected:
         bool parseHeader(QIODevice* );
         bool parseFunction(QIODevice* );

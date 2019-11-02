@@ -92,7 +92,7 @@ union TValue {
     };
 };
 
-typedef quint8 BCReg;
+typedef uint8_t BCReg;
 struct _ByteCode
 {
     const char* d_op;
@@ -383,10 +383,10 @@ static QVector<quint32> readLineNumbers( QIODevice* in, bool swap, int sizeli, i
     return lines;
 }
 
-static void readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& ups, QList<JitBytecode::Function::Var>& vars )
+static QByteArray readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& ups, QList<JitBytecode::Function::Var>& vars )
 {
     if( len == 0 )
-        return;
+        return QByteArray();
     const QByteArray tmp = in->read(len);
     int pos = 0;
     // the upvalue part is just a sequence of zero terminated strings
@@ -397,11 +397,13 @@ static void readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& ups, Q
         if( pos == -1 )
         {
             qCritical() << "invalid upval debug info";
-            return;
+            return QByteArray();
         }
         ups.append( tmp.mid(old,pos-old));
         pos++;
     }
+    const QByteArray rawVars = tmp.mid(pos);
+    // interpreted from debug_varname in lj_debug.c
     // the var part is a sequence of records terminated by zero
     // each record is a sequence of a zero terminated string or a VARNAME, and then two uleb128 numbers
     quint32 lastpc = 0;
@@ -417,7 +419,7 @@ static void readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& ups, Q
             if( pos == -1 )
             {
                 qCritical() << "invalid upval debug info";
-                return;
+                return QByteArray();
             }
             var.d_name = tmp.mid(old,pos-old);
         }else
@@ -428,6 +430,7 @@ static void readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& ups, Q
         var.d_endpc = var.d_startpc + debug_read_uleb128( (const quint8*)tmp.constData(), pos );
         vars.append( var );
     }
+    return rawVars;
 }
 
 JitBytecode::JitBytecode(QObject *parent) : QObject(parent)
@@ -660,6 +663,79 @@ bool JitBytecode::isString(const QVariant& v)
     return v.type() == QVariant::String || v.type() == QVariant::ByteArray;
 }
 
+bool JitBytecode::isPrimitive(const QVariant& v)
+{
+    return v.type() == QVariant::Bool || v.isNull();
+}
+
+const char*JitBytecode::nameOfOp(int op)
+{
+    if( op < OP_ISLT || op >= OP_INVALID )
+        return "???";
+    const _ByteCode& bc = s_byteCodes[op];
+    return bc.d_op;
+}
+
+const JitBytecode::Function::Var* JitBytecode::Function::findVar(int pc, int slot, int* idx) const
+{
+    // lj_parse.c analysis:
+    // At pc == 0 is BC_FUNCV, thus
+    pc += 1;
+    // then parse_chunk starts with ++ls->level syntactic level; pc is still 1 at start of first local
+    // locals are parsed and at least KNIL is emitted for the consecutive batch of locals increasing pc to 2
+    // then var_add is called and the startpc of each local is set to current pc, i.e. 2!!!
+    // thus startpc points to the bytecode instruction after the first appearance of the var!!!
+    pc += 1;
+
+    // verified that the following behaves exactly like lj_debug.c debug_varname (if 'pc < v.d_endpc')
+
+    if( idx )
+        *idx = 0;
+    foreach( const Var& v, d_vars )
+    {
+        if( idx )
+            *idx += 1;
+        if( v.d_startpc > pc)
+            break;
+        if( pc <= v.d_endpc && slot-- == 0 ) // original is '<'
+        {
+            return &v;
+        }
+    }
+    return 0;
+}
+
+QByteArray JitBytecode::Function::getVarName(int pc, int slot, int* idx) const
+{
+    const Var* v = findVar(pc,slot,idx);
+    if( v )
+        return v->d_name;
+    else
+        return QByteArray();
+}
+
+void JitBytecode::Function::calcVarNames() const
+{
+    if( !d_varNames.isEmpty() )
+        return;
+
+    // Bruteforce approach (sorry)
+    QVector<QByteArray> names(d_framesize);
+    for( int pc = 0; pc < d_byteCodes.size(); pc++ )
+    {
+        for( int slot = 0; slot < d_framesize; slot++ )
+        {
+            const QByteArray name = getVarName(pc,slot);
+            if( name.isEmpty() )
+                continue;
+            QByteArray& slotName = names[slot];
+            if( slotName.isEmpty() || slotName.startsWith('(') )
+                slotName = name;
+        }
+    }
+    d_varNames = names.toList();
+}
+
 QPair<quint8, JitBytecode::Function*> JitBytecode::Function::getFuncSlotFromUpval(quint8 upval) const
 {
     if( d_outer == 0 )
@@ -669,3 +745,5 @@ QPair<quint8, JitBytecode::Function*> JitBytecode::Function::getFuncSlotFromUpva
     else
         return d_outer->getFuncSlotFromUpval(getUpval(upval));
 }
+
+

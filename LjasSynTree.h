@@ -71,6 +71,7 @@ namespace Ljas {
 			R_record,
 			R_statement,
 			R_table_literal,
+			R_var_decl,
 			R_var_decls,
 			R_vname,
 			R_Last

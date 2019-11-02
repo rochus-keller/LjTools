@@ -43,8 +43,6 @@ namespace Lua
         void onSelectionChanged();
     protected:
         QTreeWidgetItem* addFunc( const JitBytecode::Function*, QTreeWidgetItem* p = 0 );
-        bool writeFunc( QTextStream& out, const JitBytecode::Function*, int indent = 0 );
-        QByteArray renderArg( const JitBytecode::Function*, int t, int v );
         void fillTree();
     private:
         JitBytecode d_bc;

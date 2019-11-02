@@ -35,7 +35,8 @@ SOURCES += LjBcViewerMain.cpp \
     ExpressionParser.cpp \
     BcViewer.cpp \
     LuaJitEngine.cpp \
-    LuaJitComposer.cpp
+    LuaJitComposer.cpp \
+    LjDisasm.cpp
 
 HEADERS  += LjBcViewerMain.h \
     ../GuiTools/CodeEditor.h \
@@ -46,7 +47,8 @@ HEADERS  += LjBcViewerMain.h \
     ExpressionParser.h \
     BcViewer.h \
     LuaJitEngine.h \
-    LuaJitComposer.h
+    LuaJitComposer.h \
+    LjDisasm.h
 
 include( ../LuaJit/LuaJit.pri ){
     LIBS += -ldl

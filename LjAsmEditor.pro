@@ -44,7 +44,9 @@ SOURCES += LjAsmEditor.cpp \
     LjasTokenType.cpp \
     LjasHighlighter.cpp \
     LjDisasm.cpp \
-    LjAssembler.cpp
+    LjAssembler.cpp \
+    BcViewer.cpp \
+    lj_code.cpp
 
 HEADERS  += LjAsmEditor.h \
     ../GuiTools/CodeEditor.h \
@@ -64,7 +66,8 @@ HEADERS  += LjAsmEditor.h \
     LjasTokenType.h \
     LjasHighlighter.h \
     LjDisasm.h \
-    LjAssembler.h
+    LjAssembler.h \
+    BcViewer.h
 
 include( /home/me/Desktop/LuaJIT-2.0.5/src/LuaJit.pri ){
     LIBS += -ldl

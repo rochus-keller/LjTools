@@ -26,6 +26,7 @@
 #include "LuaJitEngine.h"
 #include "LjasErrors.h"
 #include "LjDisasm.h"
+#include "LjAssembler.h"
 #include <QtDebug>
 #include <QDockWidget>
 #include <QApplication>
@@ -100,6 +101,7 @@ AsmEditor::AsmEditor(QWidget *parent)
 
     createTerminal();
     createMenu();
+    createDumpView();
 
     setCentralWidget(d_edit);
 
@@ -224,33 +226,50 @@ void AsmEditor::createMenu()
     new Gui::AutoShortcut( tr("CTRL+D"), this, this, SLOT(onDump()) );
 }
 
+void AsmEditor::createDumpView()
+{
+    QDockWidget* dock = new QDockWidget( tr("Bytecode"), this );
+    dock->setObjectName("Bytecode");
+    dock->setAllowedAreas( Qt::AllDockWidgetAreas );
+    dock->setFeatures( QDockWidget::DockWidgetMovable );
+    d_bcv = new BcViewer(dock);
+    dock->setWidget(d_bcv);
+    addDockWidget( Qt::RightDockWidgetArea, dock );
+}
+
 void AsmEditor::onDump()
 {
     ENABLED_IF(true);
-    QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
-    const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
-    d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),path.toUtf8());
-    dir.remove(path);
+
+    if( compile() )
+    {
+        QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
+        const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
+        QFile out(path);
+        out.open(QIODevice::WriteOnly);
+        out.write(d_bc);
+        d_bcv->loadFrom(path);
+        dir.remove(path);
+    }
 }
 
 void AsmEditor::onRun()
 {
     ENABLED_IF(true);
-    d_lua->executeCmd( d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8() );
+    if( compile() )
+        d_lua->executeCmd( d_bc, d_edit->getPath().toUtf8() );
 }
 
 void AsmEditor::onRun2()
 {
     ENABLED_IF(true);
-    QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
-    const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
-    d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),path.toUtf8());
+    if( !compile() )
+        return;
     JitBytecode bc;
-    if( bc.parse(path) )
-    {
+    QBuffer buf(&d_bc);
+    buf.open(QIODevice::ReadOnly);
+    if( bc.parse(&buf, d_edit->getPath()) )
         d_eng->run( &bc );
-    }
-    dir.remove(path);
 }
 
 void AsmEditor::onNew()
@@ -424,17 +443,7 @@ void AsmEditor::onParse()
     if( name.isEmpty() )
         name = tr("<unnamed>");
     qDebug() << "Checking syntax of" << name;
-    Ljas::Errors err;
-    err.setReportToConsole(true);
-    Ljas::Lexer lex;
-    lex.setErrors(&err);
-    QByteArray code = d_edit->toPlainText().toUtf8();
-    QBuffer buf(&code);
-    buf.open(QIODevice::ReadOnly);
-    lex.setStream(&buf,d_edit->getPath());
-    Ljas::Parser p(&lex,&err);
-    p.Parse();
-    if( err.getErrCount() == 0 )
+    if( compile() )
         qDebug() << "No errors found";
 }
 
@@ -464,6 +473,30 @@ bool AsmEditor::checkSaved(const QString& title)
         }
     }
     return true;
+}
+
+bool AsmEditor::compile()
+{
+    Ljas::Errors err;
+    err.setReportToConsole(true);
+    Ljas::Lexer lex;
+    lex.setErrors(&err);
+    QByteArray code = d_edit->toPlainText().toUtf8();
+    QBuffer buf(&code);
+    buf.open(QIODevice::ReadOnly);
+    lex.setStream(&buf,d_edit->getPath());
+    Ljas::Parser p(&lex,&err);
+    p.Parse();
+    if( err.getErrCount() != 0 )
+        return false;
+
+    Ljas::Assembler ass(&err);
+    if( ass.process( p.d_root.d_children.first() ) )
+    {
+        d_bc = ass.getBc();
+        return true;
+    }else
+        return false;
 }
 
 int main(int argc, char *argv[])

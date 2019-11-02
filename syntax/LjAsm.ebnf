@@ -9,15 +9,15 @@ function_header ::=
 	[ var_decls ] 
 	{ function_decl }
 
-function_body ::=  
-	begin 
-	{ [ labelDef ] statement } 
+function_body ::=   begin  { [ labelDef ] statement } 
 
 labelDef ::= label ':'
 
 formal_params ::=  { vname } // Not yet implemented [ '...' ]
 
-var_decls ::= var { vname [ array ] | record } 
+var_decls ::= var { var_decl | record } 
+
+var_decl ::= vname [ array ]
 
 array ::= '[' posint ']' // an array of n consecutive slots, e.g. range[10]
 
@@ -77,8 +77,8 @@ KSET_ ::= KSET desig ( string | number | primitive | cname )
 // = KSTR, KCDATA, KSHORT, KNUM and KPRI
 KNIL_ ::= KNIL desig [ posint ] // posint: number of slots to cat, all to end of record/array if left out
 
-UGET_ ::= UGET desig desig
-USET_ ::= USET desig ( string | number | primitive | desig )
+UGET_ ::= UGET desig desig // dst <- uv
+USET_ ::= USET desig ( string | number | primitive | desig ) // uv <- src
 // = USETV, USETS, USETN and USETP, desig includes cname
 
 UCLO_ ::= UCLO desig [ \LA: 1:ident & 2:!':' \ label ] 
@@ -93,10 +93,10 @@ TGET_ ::= TGET desig desig ( desig | string | posint )
 TSET_ ::= TSET desig desig ( desig | string | posint )
 // = TSETV, TSETS and TSETB; desig includes cname
 
-CALL_ ::= CALL desig posint posint // number of return values, number of arguments
-CALLT_ ::= CALLT desig posint // number of arguments
+CALL_ ::= CALL desig [ posint [ posint ] ] // number of return values, number of arguments
+CALLT_ ::= CALLT desig [ posint ] // number of arguments
 
-RET_ ::= RET [ \LL:2\ desig [ posint ] ] // number of returns, leave out if 1
+RET_ ::= RET [ \LA: 1:ident & 2:!':' \ desig [ posint ] ] // number of returns, leave out if 1
 // = RET, RET0, RET1
 
 FORI_ ::= FORI desig label

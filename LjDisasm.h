@@ -33,8 +33,7 @@ namespace Ljas
         static bool disassemble(const Lua::JitBytecode&, QIODevice*, const QString& path = QString() );
     protected:
         static bool writeFunc( QTextStream& out, const Lua::JitBytecode::Function*, int indent = 0 );
-        typedef QHash<quint32,QByteArray> SlotMap;
-        static QByteArray renderArg(const SlotMap&, const Lua::JitBytecode::Function* f, int t, int v, int pc);
+        static QByteArray renderArg(const Lua::JitBytecode::Function* f, int t, int v, int pc);
     private:
         Disasm();
 
