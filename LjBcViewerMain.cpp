@@ -435,7 +435,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjBcViewer");
-    a.setApplicationVersion("0.4.3");
+    a.setApplicationVersion("0.5.0");
     a.setStyle("Fusion");
 
     Lua::MainWindow w;

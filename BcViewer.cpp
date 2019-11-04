@@ -23,6 +23,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QtDebug>
+#include <QDir>
 using namespace Lua;
 
 #define LINEAR
@@ -52,6 +53,13 @@ bool BcViewer::loadFrom(const QString& path)
 {
     if( !d_bc.parse(path) )
         return false;
+
+    // TEST
+//    QFile orig(path);
+//    QDir d;
+//    d.remove("orig.bin");
+//    orig.copy("orig.bin");
+//    d_bc.write("generated.bin");
 
     fillTree();
 

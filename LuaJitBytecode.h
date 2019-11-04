@@ -145,6 +145,8 @@ namespace Lua
         explicit JitBytecode(QObject *parent = 0);
         bool parse( const QString& file );
         bool parse(QIODevice* in , const QString& path = QString());
+        bool write(QIODevice* out, const QString& path = QString() );
+        bool write( const QString& file );
         const QList<FuncRef>& getFuncs() const { return d_funcs; }
         Function* getRoot() const;
         bool isStripped() const;
@@ -159,7 +161,13 @@ namespace Lua
         static const char* nameOfOp(int op );
     protected:
         bool parseHeader(QIODevice* );
+        bool writeHeader(QIODevice* );
         bool parseFunction(QIODevice* );
+        bool writeFunction(QIODevice*, Function*);
+        QByteArray writeDbgInfo(Function*);
+        bool writeNumConsts(QIODevice*, const QVariantList& );
+        bool writeObjConsts(QIODevice*, const QVariantList& );
+        bool writeByteCodes(QIODevice*, const CodeList& );
         bool error( const QString& );
         QVariantList readObjConsts( Function* f, QIODevice* in, quint32 len );
     private:

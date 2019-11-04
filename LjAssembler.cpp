@@ -27,7 +27,6 @@ using namespace Lua;
 
 #define LJ_MAX_SLOTS	250
 
-
 struct Interval
 {
     uint d_from : 24;
@@ -303,10 +302,13 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
     if( !allocateRegisters3(me) )
         return false;
 
-#ifdef _DEBUG
+//#ifdef _DEBUG
     if( !checkSlotOrder(stmts) )
         return false;
-#endif
+//#endif
+
+    if( !generateCode(stmts) )
+        return false;
 
     return true;
 }
@@ -1430,6 +1432,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
 
 bool Assembler::checkSlotOrder(const Assembler::Stmts& stmts)
 {
+    static const char* msg = "allocator issue: invalid slot order";
     for( int pc = 0; pc < stmts.size(); pc++ )
     {
         const Stmt& s = stmts[pc];
@@ -1442,7 +1445,7 @@ bool Assembler::checkSlotOrder(const Assembler::Stmts& stmts)
                 const Var* v = toVar(s.d_vals[s.d_vals.size()-2]);
                 Q_ASSERT( n > 0 && v != 0 );
                 if( !checkSlotOrder( v, n ) )
-                    return error(s.d_st,tr("allocator issue: invalid slot order") );
+                    return error(s.d_st,tr(msg) );
             }
             break;
         case JitBytecode::OP_FORI:
@@ -1451,7 +1454,7 @@ bool Assembler::checkSlotOrder(const Assembler::Stmts& stmts)
                 const Var* v = toVar(s.d_vals.first());
                 Q_ASSERT( v != 0 );
                 if( !checkSlotOrder( v, 4 ) )
-                    return error(s.d_st,tr("allocator issue: invalid slot order") );
+                    return error(s.d_st,tr(msg) );
             }
             break;
         case JitBytecode::OP_CALL:
@@ -1462,7 +1465,7 @@ bool Assembler::checkSlotOrder(const Assembler::Stmts& stmts)
                 const Var* v = toVar(s.d_vals[0]);
                 const int n = qMax( rets, args + 1 );
                 if( !checkSlotOrder( v, n ) )
-                    return error(s.d_st,tr("allocator issue: invalid slot order") );
+                    return error(s.d_st,tr(msg) );
             }
             break;
         case JitBytecode::OP_CALLT:
@@ -1472,7 +1475,7 @@ bool Assembler::checkSlotOrder(const Assembler::Stmts& stmts)
                 const Var* v = toVar(s.d_vals[0]);
                 const int n = args + 1;
                 if( !checkSlotOrder( v, n ) )
-                    return error(s.d_st,tr("allocator issue: invalid slot order") );
+                    return error(s.d_st,tr(msg) );
             }
             break;
         case JitBytecode::OP_RET:
@@ -1481,11 +1484,16 @@ bool Assembler::checkSlotOrder(const Assembler::Stmts& stmts)
                 const int n = s.d_vals[1].toInt();
                 const Var* v = toVar(s.d_vals[0]);
                 if( !checkSlotOrder( v, n ) )
-                    return error(s.d_st,tr("allocator issue: invalid slot order") );
+                    return error(s.d_st,tr(msg) );
             }
             break;
         }
     }
+    return true;
+}
+
+bool Assembler::generateCode(const Assembler::Stmts& stmts)
+{
     return true;
 }
 

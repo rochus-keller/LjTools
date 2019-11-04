@@ -22,6 +22,8 @@
 #include <QFile>
 #include <QtEndian>
 #include <lj_bc.h>
+#include <QBuffer>
+#include "StreamSpy.h"
 using namespace Lua;
 
 // Adapted from LuaJIT 2.0.5 lj_bcread.c
@@ -85,7 +87,7 @@ static const char* s_varname[] = {
 
 // helper
 union TValue {
-    double d;
+    lua_Number d;
     struct {
     quint32 lo;
     quint32 hi;
@@ -144,6 +146,26 @@ static quint32 bcread_uleb128(QIODevice* in)
     return result;
 }
 
+/* Read ULEB128 value. */
+static quint32 debug_read_uleb128(const quint8 *p, int& pos )
+{
+  quint32 v = p[pos++];
+  if (v >= 0x80) {
+    int sh = 0;
+    v &= 0x7f;
+    do { v |= ((p[pos] & 0x7f) << (sh += 7)); } while (p[pos++] >= 0x80);
+  }
+  return v;
+}
+
+/* Add ULEB128 value to buffer. */
+static void bcwrite_uleb128(QIODevice* out, uint32_t v)
+{
+  for (; v >= 0x80; v >>= 7)
+    out->putChar( (char)((v & 0x7f) | 0x80) );
+  out->putChar( v );
+}
+
 /* Read top 32 bits of 33 bit ULEB128 value from buffer. */
 static quint32 bcread_uleb128_33(QIODevice* in)
 {
@@ -167,24 +189,17 @@ static quint32 bcread_uleb128_33(QIODevice* in)
     return result;
 }
 
-/* Read ULEB128 value. */
-static quint32 debug_read_uleb128(const quint8 *p, int& pos )
-{
-  quint32 v = p[pos++];
-  if (v >= 0x80) {
-    int sh = 0;
-    v &= 0x7f;
-    do { v |= ((p[pos] & 0x7f) << (sh += 7)); } while (p[pos++] >= 0x80);
-  }
-  return v;
-}
-
 static inline quint8 readByte(QIODevice* in)
 {
     char ch;
     if( in->getChar(&ch) )
         return quint8(ch);
     return 0;
+}
+
+static inline void writeByte(QIODevice* out, quint8 b)
+{
+    out->putChar((char)b);
 }
 
 static JitBytecode::CodeList readCode( QIODevice* in, bool swap, quint32 len )
@@ -243,8 +258,9 @@ static QVariant bcread_ktabk(QIODevice* in )
       return true;
   else if( tp == BCDUMP_KTAB_FALSE )
         return false;
-  else
-        return QVariant();
+  //else
+  Q_ASSERT( tp == BCDUMP_KTAB_NIL );
+  return QVariant();
 }
 
 QVariantList JitBytecode::readObjConsts( Function* f, QIODevice* in, quint32 len )
@@ -425,7 +441,7 @@ static QByteArray readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& 
         }else
             var.d_name = s_varname[quint8(tmp[pos])];
         pos++;
-        // TODO: is this correct? there seems to be an n:m relation between names and slot numbers
+        // there is an n:m relation between names and slot numbers
         lastpc = var.d_startpc = lastpc + debug_read_uleb128( (const quint8*)tmp.constData(), pos );
         var.d_endpc = var.d_startpc + debug_read_uleb128( (const quint8*)tmp.constData(), pos );
         vars.append( var );
@@ -469,6 +485,27 @@ bool JitBytecode::parse(QIODevice* in, const QString& path)
     if( getRoot() )
         getRoot()->d_isRoot = true;
     return true;
+}
+
+bool JitBytecode::write(QIODevice* out, const QString& path)
+{
+    if( d_fstack.size() != 1 )
+        return false;
+    qDebug() << "**** writing header";
+    writeHeader(out);
+    writeFunction(out,d_fstack.first().data());
+    out->putChar(0);
+    return true;
+}
+
+bool JitBytecode::write(const QString& file)
+{
+    QFile out(file);
+    if( !out.open(QIODevice::WriteOnly|QIODevice::Unbuffered) )
+        return error( tr("cannot open file for writing: %1").arg(file) );
+//    OutStreamSpy spy(&out);
+//    return write(&spy);
+    return write(&out);
 }
 
 JitBytecode::Function* JitBytecode::getRoot() const
@@ -562,6 +599,22 @@ bool JitBytecode::parseHeader(QIODevice* in)
     return true;
 }
 
+bool JitBytecode::writeHeader(QIODevice* out)
+{
+    writeByte(out,BCDUMP_HEAD1);
+    writeByte(out,BCDUMP_HEAD2);
+    writeByte(out,BCDUMP_HEAD3);
+    writeByte(out,BCDUMP_VERSION);
+    writeByte( out, ( isStripped() ? BCDUMP_F_STRIP : 0 ) +
+               ( QSysInfo::ByteOrder == QSysInfo::BigEndian ? BCDUMP_F_BE : 0 ) );
+    if( !isStripped() )
+    {
+        const QByteArray name = d_name.toUtf8();
+        bcwrite_uleb128(out, name.size() );
+        out->write( name );
+    }
+}
+
 bool JitBytecode::parseFunction(QIODevice* in )
 {
     /* Read length. */
@@ -602,6 +655,284 @@ bool JitBytecode::parseFunction(QIODevice* in )
 
     d_funcs.append(fr);
     d_fstack.push_back(fr);
+    return true;
+}
+
+static void writeUpval( QIODevice* out, const JitBytecode::UpvalList& l )
+{
+    static const int codeLen = 2;
+
+    char buf[2];
+    foreach( quint16 uv, l )
+    {
+        memcpy( buf, &uv, codeLen );
+        out->write(buf,codeLen);
+    }
+}
+
+bool JitBytecode::writeFunction(QIODevice* out, JitBytecode::Function* f)
+{
+    for( int i = f->d_constObjs.size() - 1; i >= 0; i-- )
+    {
+        const QVariant&v = f->d_constObjs[i];
+        if( v.canConvert<FuncRef>() )
+        {
+            f->d_flags |= PROTO_CHILD;
+            writeFunction(out,v.value<FuncRef>().data() );
+        }
+    }
+
+    QBuffer tmp;
+    tmp.open(QIODevice::WriteOnly);
+
+    /* Write prototype header. */
+    writeByte(&tmp,f->d_flags & (PROTO_CHILD|PROTO_VARARG|PROTO_FFI));
+    writeByte(&tmp,f->d_numparams);
+    writeByte(&tmp,f->d_framesize);
+
+    writeByte(&tmp,f->d_upvals.size());
+    // sizekgc
+    bcwrite_uleb128(&tmp, f->d_constObjs.size() );
+    // sizekn
+    bcwrite_uleb128(&tmp, f->d_constNums.size() );
+    // sizebc
+    bcwrite_uleb128(&tmp, f->d_byteCodes.size() );
+
+    QByteArray dbgInfo;
+    if( !isStripped() )
+    {
+        dbgInfo = writeDbgInfo(f);
+        bcwrite_uleb128(&tmp,dbgInfo.size());
+        if( !dbgInfo.isEmpty() )
+        {
+            bcwrite_uleb128(&tmp, f->d_firstline);
+            bcwrite_uleb128(&tmp, f->d_numline);
+        }
+    }
+
+    writeByteCodes(&tmp,f->d_byteCodes);
+    writeUpval(&tmp,f->d_upvals);
+
+    writeObjConsts( &tmp, f->d_constObjs );
+    writeNumConsts( &tmp, f->d_constNums );
+
+    // LineNumbers, Names
+    tmp.write(dbgInfo);
+
+    tmp.close();
+    bcwrite_uleb128(out,tmp.data().size());
+    out->write(tmp.data());
+
+    return true;
+}
+
+QByteArray JitBytecode::writeDbgInfo(JitBytecode::Function* f)
+{
+    QBuffer buf;
+    buf.open(QIODevice::WriteOnly|QIODevice::Unbuffered);
+
+    quint32 sizeli = f->d_byteCodes.size();
+    sizeli = sizeli << (f->d_numline < 256 ? 0 : ( f->d_numline < 65536 ? 1 : 2 ) );
+
+    char b[4];
+    if( f->d_numline < 256 )
+    {
+        // 1 byte per number
+        for( int i = 0; i < f->d_lines.size(); i++ )
+            writeByte( &buf, f->d_lines[i] - f->d_firstline );
+    }else if( f->d_numline < 65536 )
+    {
+        // 2 bytes per number
+        quint16 tmp;
+        for( int i = 0; i < f->d_lines.size(); i++ )
+        {
+            tmp = f->d_lines[i] - f->d_firstline;
+            memcpy( b, &tmp, 2 );
+            buf.write(b,2);
+        }
+    }else
+    {
+        // 4 bytes per number
+        quint32 tmp;
+        for( int i = 0; i < f->d_lines.size(); i++ )
+        {
+            tmp = f->d_lines[i] - f->d_firstline;
+            memcpy( b, &tmp, 4 );
+            buf.write(b,2);
+        }
+    }
+
+    // the upvalue part is just a sequence of zero terminated strings
+    for( int i = 0; i < f->d_upNames.size(); i++ )
+    {
+        buf.write(f->d_upNames[i]);
+        buf.putChar(0);
+    }
+
+    quint32 lastpc = 0;
+    for( int i = 0; i < f->d_vars.size(); i++ )
+    {
+        if( f->d_vars[i].d_name.startsWith('(') )
+        {
+            int code = -1;
+            for( int j = 1; j < VARNAME__MAX; j++ )
+            {
+                if( s_varname[j] == f->d_vars[i].d_name )
+                {
+                    code = j;
+                    break;
+                }
+            }
+            Q_ASSERT(code > 0);
+            writeByte(&buf,code);
+        }else
+        {
+            buf.write(f->d_vars[i].d_name);
+            buf.putChar(0);
+        }
+        bcwrite_uleb128(&buf, f->d_vars[i].d_startpc - lastpc );
+        lastpc = f->d_vars[i].d_startpc;
+        bcwrite_uleb128(&buf, f->d_vars[i].d_endpc - f->d_vars[i].d_startpc );
+    }
+    buf.putChar(0);
+
+    buf.close();
+    return buf.data();
+}
+
+static int32_t lj_num2bit(lua_Number n)
+{
+  TValue o;
+  o.d = n + 6755399441055744.0;  /* 2^52 + 2^51 */
+  return (int32_t)o.lo;
+}
+
+bool JitBytecode::writeNumConsts(QIODevice* out, const QVariantList& l)
+{
+    // adopted from LuaJIT lj_bcwrite
+    for( int i = 0; i < l.size(); i++ )
+    {
+        /* Write a 33 bit ULEB128 for the int (lsb=0) or loword (lsb=1). */
+        /* Narrow number constants to integers. */
+        TValue o;
+        int32_t k;
+        bool isInt = false;
+        if( l[i].type() == QVariant::Int )
+        {
+            k = l[i].toInt();
+            isInt = true;
+        }else
+        {
+            o.d = l[i].toDouble();
+            const lua_Number num = o.d;
+            k = lj_num2bit(num);
+            isInt = ( num == (lua_Number)k );
+        }
+        if (isInt) {  /* -0 is never a constant. */
+            QBuffer tmp;
+            tmp.open(QIODevice::WriteOnly|QIODevice::Unbuffered);
+            bcwrite_uleb128(&tmp, 2*(uint32_t)k | ((uint32_t)k & 0x80000000u));
+            tmp.close();
+            if (k < 0) {
+                char *p = tmp.buffer().data() + tmp.buffer().size() - 1;
+                *p = (*p & 7) | ((k>>27) & 0x18);
+            }
+            out->write(tmp.buffer());
+            continue;
+        }
+        QBuffer tmp;
+        tmp.open(QIODevice::WriteOnly|QIODevice::Unbuffered);
+        bcwrite_uleb128(&tmp, 1+(2*o.lo | (o.lo & 0x80000000u)));
+        if (o.lo >= 0x80000000u) {
+            char *p = tmp.buffer().data() + tmp.buffer().size() - 1;
+            *p = (*p & 7) | ((o.lo>>27) & 0x18);
+        }
+        out->write(tmp.buffer());
+        bcwrite_uleb128(out, o.hi);
+    }
+    return true;
+}
+
+static void bcwrite_ktabk(QIODevice* out, const QVariant& v, bool narrow )
+{
+    if( v.type() == QVariant::ByteArray )
+    {
+        const QByteArray str = v.toByteArray();
+        bcwrite_uleb128(out,BCDUMP_KGC_STR + str.size() );
+        out->write(str);
+    }else if( v.type() == QVariant::Int )
+    {
+        writeByte(out, BCDUMP_KTAB_INT);
+        bcwrite_uleb128(out, v.toInt());
+    }else if( v.type() == QVariant::Bool )
+    {
+        if( v.toBool() )
+            writeByte(out, BCDUMP_KTAB_TRUE);
+        else
+            writeByte(out, BCDUMP_KTAB_FALSE );
+    }else if( v.isNull() )
+        writeByte(out,BCDUMP_KTAB_NIL);
+    else
+    {
+        if( narrow )
+        {
+            /* Narrow number constants to integers. */
+            lua_Number num = v.toDouble();
+            int32_t k = lj_num2bit(num);
+            if (num == (lua_Number)k) {  /* -0 is never a constant. */
+                writeByte(out, BCDUMP_KTAB_INT);
+                bcwrite_uleb128(out, k);
+                return;
+            }
+        }
+        TValue o;
+        o.d = v.toDouble();
+        writeByte(out, BCDUMP_KTAB_NUM);
+        bcwrite_uleb128(out, o.lo);
+        bcwrite_uleb128(out, o.hi);
+    }
+}
+
+bool JitBytecode::writeObjConsts(QIODevice* out, const QVariantList& l)
+{
+    for( int i = 0; i < l.size(); i++ )
+    {
+        const QVariant& v = l[i];
+        if( v.type() == QVariant::ByteArray )
+        {
+            const QByteArray str = v.toByteArray();
+            bcwrite_uleb128(out,BCDUMP_KGC_STR + str.size() );
+            out->write(str);
+        }else if( v.canConvert<FuncRef>())
+            bcwrite_uleb128(out,BCDUMP_KGC_CHILD);
+        else if( v.canConvert<ConstTable>() )
+        {
+            ConstTable t = v.value<ConstTable>();
+            bcwrite_uleb128(out,BCDUMP_KGC_TAB);
+            bcwrite_uleb128(out,t.d_array.size());
+            bcwrite_uleb128(out,t.d_hash.size());
+            for( int i = 0; i < t.d_array.size(); i++ )
+                bcwrite_ktabk(out,t.d_array[i],true);
+            QHash<QVariant,QVariant>::const_iterator i;
+            for( i = t.d_hash.begin(); i != t.d_hash.end(); ++i )
+            {
+                bcwrite_ktabk(out,i.key(),false);
+                bcwrite_ktabk(out,i.value(),true);
+            }
+        }
+    }
+    return true;
+}
+
+bool JitBytecode::writeByteCodes(QIODevice* out, const JitBytecode::CodeList& l)
+{
+    char buf[4];
+    for( int i = 0; i < l.size(); i++ )
+    {
+        const quint32 tmp = l[i];
+        ::memcpy( buf, &tmp, 4 );
+        out->write(buf,4);
+    }
     return true;
 }
 

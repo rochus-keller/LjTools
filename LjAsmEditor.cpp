@@ -135,18 +135,9 @@ void AsmEditor::loadFile(const QString& path)
     QDir::setCurrent(QFileInfo(path).absolutePath());
     onCaption();
 
-    Ljas::Errors err;
-    err.setReportToConsole(true);
-    Ljas::Lexer lex;
-    lex.setErrors(&err);
-    lex.setStream(path);
-    Ljas::Parser p(&lex,&err);
-    p.Parse();
-
-
     // TEST
-    // onDump();
-    //d_bcv->saveTo(path + ".ljasm");
+    compile();
+
 }
 
 void AsmEditor::logMessage(const QString& str, bool err)

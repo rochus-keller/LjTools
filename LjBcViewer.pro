@@ -48,7 +48,8 @@ HEADERS  += LjBcViewerMain.h \
     BcViewer.h \
     LuaJitEngine.h \
     LuaJitComposer.h \
-    LjDisasm.h
+    LjDisasm.h \
+    StreamSpy.h
 
 include( ../LuaJit/LuaJit.pri ){
     LIBS += -ldl

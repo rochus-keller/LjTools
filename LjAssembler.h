@@ -127,6 +127,7 @@ namespace Ljas
         bool checkJumps( Stmts&, const Labels& );
         bool allocateRegisters3(Func* me );
         bool checkSlotOrder(const Stmts& stmts);
+        bool generateCode(const Stmts& stmts);
         Named* derefDesig( SynTree*, Func*, bool onlyLocalVars = true );
         static SynTree* findFirstChild(const SynTree*, int type , int startWith = 0);
         static SynTree* flatten( SynTree*, int stopAt = 0 );
