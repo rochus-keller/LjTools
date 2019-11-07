@@ -102,6 +102,7 @@ namespace Lua
 
         struct Instruction
         {
+            enum { JumpBias = 0x8000 };
             enum FieldType {
                 Unused,
                 ____ = Unused,
@@ -135,7 +136,7 @@ namespace Lua
                 case _lits:
                     return qint16(d_cd);
                 case _jump:
-                    return d_cd - 0x8000;
+                    return d_cd - JumpBias;
                 default:
                     return d_cd;
                 }
@@ -155,6 +156,7 @@ namespace Lua
         static Format formatFromOp(quint8);
         static Instruction::FieldType typeCdFromOp(quint8);
         static Instruction::FieldType typeBFromOp(quint8);
+        static Instruction::FieldType typeAFromOp(quint8);
         static bool isNumber( const QVariant& );
         static bool isString( const QVariant& );
         static bool isPrimitive( const QVariant& );
@@ -171,6 +173,7 @@ namespace Lua
         bool error( const QString& );
         QVariantList readObjConsts( Function* f, QIODevice* in, quint32 len );
     private:
+        friend class JitComposer;
         QString d_name;
         QList<FuncRef> d_funcs;
         QList<FuncRef> d_fstack;

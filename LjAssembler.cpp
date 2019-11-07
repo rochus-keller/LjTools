@@ -22,6 +22,7 @@
 #include <QBitArray>
 #include <QtDebug>
 #include <QElapsedTimer>
+#include <QBuffer>
 using namespace Ljas;
 using namespace Lua;
 
@@ -133,7 +134,11 @@ bool Assembler::process(SynTree* st, const QByteArray& sourceRef)
     qDebug() << "Assembler::process runtime [ms]:" << t.elapsed();
     if( res )
     {
-        // TODO convert composer to BC
+        QBuffer buf;
+        buf.open(QIODevice::WriteOnly);
+        d_comp.write(&buf);
+        buf.close();
+        d_bc = buf.data();
         return true;
     }else
         return false;
@@ -253,7 +258,9 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
     if( !processVars(hdr,me) )
         return false;
 
-    d_comp.openFunction(me->d_params.size(),d_ref,st->d_tok.d_lineNr, st->d_children.last()->d_tok.d_lineNr );
+    int id = d_comp.openFunction(me->d_params.size(),d_ref,st->d_tok.d_lineNr, st->d_children.last()->d_tok.d_lineNr );
+    Q_ASSERT( id >= 0);
+    me->d_id = id;
 
     for( int i = 3; i < hdr->d_children.size(); i++ )
     {
@@ -293,11 +300,19 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
             }
         }
 
-        if( !checkJumps( stmts, labels ) )
+        if( !checkJumpsAndMore( stmts, labels ) )
             return false;
 
     }else
-        ; // TODO: add at least RET
+    {
+        // add at least RET
+        Stmt s;
+        s.d_st = st->d_children.last();
+        s.d_pc = 0;
+        s.d_op = JitBytecode::OP_RET0;
+        stmts << s;
+        s.d_vals << quint8(0) << quint8(0);
+    }
 
     if( !allocateRegisters3(me) )
         return false;
@@ -307,9 +322,10 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
         return false;
 //#endif
 
-    if( !generateCode(stmts) )
+    if( !generateCode(me,stmts) )
         return false;
 
+    d_comp.closeFunction(me->d_firstUnused.d_slot);
     return true;
 }
 
@@ -327,6 +343,7 @@ bool Assembler::processParams(SynTree* hdr, Assembler::Func* me )
         s->d_slot = i; // allocate already here
         s->d_to = 1; // mark all params as being used. TODO: why is this? can't we reuse param slots?
         me->d_names.insert( s->d_name, s );
+        s->d_func = me;
         me->d_params.append( s );
     }
     return true;
@@ -439,12 +456,14 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                     }
                     prev = vv;
                     a->d_elems.append(vv);
+                    vv->d_func = me;
                 }
             }else
             {
                 Var* vv = new Var();
                 vv->d_name = name;
                 me->d_names.insert( name, vv );
+                vv->d_func = me;
             }
         }else if( v->d_children[i]->d_tok.d_type == SynTree::R_record )
         {
@@ -466,6 +485,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                     vv->d_prev = prev;
                 }
                 prev = vv;
+                vv->d_func = me;
                 me->d_names.insert( vv->d_name, vv );
             }
         }else
@@ -563,6 +583,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
     case SynTree::R_ISF_:
         s.d_op = st->d_tok.d_type == SynTree::R_IST_ ? JitBytecode::OP_IST : JitBytecode::OP_ISF;
         Q_ASSERT( st->d_children.size() == 2 );
+        s.d_vals << quint8(0);
         if( !fetchV( st->d_children[1], s, me ) )
             return false;
         break;
@@ -672,7 +693,13 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             return error(st->d_children[2],tr("argument types not supported") );
         break;
     case SynTree::R_LOOP_:
-        s.d_op = JitBytecode::OP_LOOP;
+        {
+            Named* n = &me->d_firstUnused;
+            s.d_op = JitBytecode::OP_LOOP;
+            s.d_vals << QVariant::fromValue(n);
+            s.d_vals << int(0);
+            // TODO: LOOP depends label from the JMP pointing to it
+        }
         break;
     case SynTree::R_KSET_:
         Q_ASSERT( st->d_children.size() == 3 );
@@ -786,7 +813,8 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         {
             SynTree* lbl = flatten(st->d_children[2]);
             s.d_vals << lbl->d_tok.d_val;
-        }
+        }else
+            s.d_vals << quint16(0);
         break;
     case SynTree::R_FNEW_:
         s.d_op = JitBytecode::OP_FNEW;
@@ -805,12 +833,22 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         {
             if( !fetchN( st->d_children[2], s ) )
                 return false;
+            const quint16 a = s.d_vals.back().toUInt();
+            if( a > 2047 )
+                return error( st->d_children[2], tr("array size 0..2047 (11 bits)") );
             if( st->d_children.size() > 3 )
             {
                 if( !fetchN( st->d_children[3], s ) )
                     return false;
+                const quint16 h = s.d_vals.back().toUInt();
+                if( h > 31 )
+                    return error( st->d_children[2], tr("hash size 0..31 (5 bits)") );
+                s.d_vals.pop_back();
+                s.d_vals.back() = a + ( h << 11 );
             }
-        }
+        }else
+            s.d_vals << quint16(0);
+        Q_ASSERT( s.d_vals.size() == 2 );
         break;
     case SynTree::R_TDUP_:
         s.d_op = JitBytecode::OP_TDUP;
@@ -887,6 +925,10 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                     args = s.d_vals.back().toInt();
                 }else
                     s.d_vals << args;
+                if( rets > LJ_MAX_SLOTS )
+                    return error( st->d_children[2], tr("invalid number of return values") );
+                if( args > LJ_MAX_SLOTS )
+                    return error( st->d_children[2], tr("invalid number of argument") );
             }else
                 s.d_vals << rets << args;
             const int n = qMax( rets, args + 1 );
@@ -904,6 +946,8 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             if( !fetchN( st->d_children[2], s ) )
                 return false;
             const int n = s.d_vals.back().toInt() + 1;
+            if( n > LJ_MAX_SLOTS )
+                return error( st->d_children[2], tr("invalid number of argument") );
             if( !fetchV( st->d_children[1], s, me, n ) )
                 return false;
             Q_ASSERT( s.d_vals.size() == 2 );
@@ -920,18 +964,23 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                 if( !fetchN( st->d_children[2], s ) )
                     return false;
                 n = s.d_vals.back().toInt();
+                if( n > LJ_MAX_SLOTS )
+                    return error( st->d_children[2], tr("invalid number of return values") );
+                s.d_op = JitBytecode::OP_RET;
+            }else
+            {
+                s.d_op = JitBytecode::OP_RET1;
+                s.d_vals << n;
             }
             if( !fetchV( st->d_children[1], s, me, n ) )
                 return false;
-            if( s.d_vals.size() == 2 )
-                qSwap(s.d_vals[0],s.d_vals[1]);
-        }
-        if( s.d_vals.isEmpty() )
+            Q_ASSERT( s.d_vals.size() == 2 );
+            qSwap(s.d_vals[0],s.d_vals[1]);
+        }else
+        {
             s.d_op = JitBytecode::OP_RET0;
-        else if( s.d_vals.size() == 1 )
-            s.d_op = JitBytecode::OP_RET1;
-        else
-            s.d_op = JitBytecode::OP_RET;
+            s.d_vals << quint8(0) << quint16(0);
+        }
         break;
     case SynTree::R_FORI_:
     case SynTree::R_FORL_:
@@ -942,9 +991,14 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         s.d_vals << flatten(st->d_children[2])->d_tok.d_val;
         break;
     case SynTree::R_JMP_:
-        s.d_op = JitBytecode::OP_JMP;
-        Q_ASSERT( st->d_children.size() == 2 );
-        s.d_vals << flatten(st->d_children[1])->d_tok.d_val;
+        {
+            Named* n = &me->d_firstUnused;
+            s.d_op = JitBytecode::OP_JMP;
+            Q_ASSERT( st->d_children.size() == 2 );
+            s.d_vals << QVariant::fromValue( n );
+            s.d_vals << flatten(st->d_children[1])->d_tok.d_val;
+            // TODO: check that JMP jumps to a LOOP, but not always
+        }
         break;
     default:
         //Q_ASSERT( false );
@@ -989,6 +1043,7 @@ bool Assembler::fetchU(SynTree* st, Assembler::Stmt& s, Assembler::Func* me)
     Var* v = n->toVar();
     if( v == 0 )
         return error(st,tr("argument doesn't designate a variable"));
+    me->resolveUpval(v);
     v->d_uv = true;
     s.d_vals << QVariant::fromValue(n);
     return true;
@@ -1159,10 +1214,13 @@ bool Assembler::fetchVcn(SynTree* st, Assembler::Stmt& s, Assembler::Func* me)
     return false;
 }
 
-bool Assembler::checkJumps(Assembler::Stmts& stmts, const Assembler::Labels& lbls)
+bool Assembler::checkJumpsAndMore(Assembler::Stmts& stmts, const Assembler::Labels& lbls)
 {
     for( int pc = 0; pc < stmts.size(); pc++ )
     {
+        if( !checkTestOp( stmts, pc ) )
+            return false;
+
         Stmt& s = stmts[pc];
         switch( s.d_op )
         {
@@ -1180,11 +1238,22 @@ bool Assembler::checkJumps(Assembler::Stmts& stmts, const Assembler::Labels& lbl
                 Labels::const_iterator i = lbls.find(s.d_vals.back().toByteArray());
                 if( i == lbls.end() )
                     return error(s.d_st,tr("label not defined") );
-                s.d_vals.back() = i.value() - ( pc + 1 );
-                // qDebug() << "resolved jump" << pc << JitBytecode::nameOfOp(s.d_op) << i.key() << s.d_vals.back().toInt();
+                s.d_vals.back() = quint16( i.value() - ( pc + 1 ) + JitBytecode::Instruction::JumpBias );
             }
             break;
         }
+    }
+    Q_ASSERT( !stmts.isEmpty() );
+    switch( stmts.last().d_op )
+    {
+    case JitBytecode::OP_RET:
+    case JitBytecode::OP_RET0:
+    case JitBytecode::OP_RET1:
+    case JitBytecode::OP_RETM:
+    case JitBytecode::OP_CALLT:
+        return true;
+    default:
+        return error( stmts.last().d_st, tr("last statement must be return or tail call") );
     }
     return true;
 }
@@ -1409,6 +1478,15 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
             }
         }
     }
+    int frameSize;
+    for( frameSize = pool.size() - 1; frameSize >= 0; frameSize-- )
+    {
+        if( pool.at(frameSize) )
+            break;
+    }
+    frameSize++;
+    me->d_firstUnused.d_slot = qMin(frameSize,255);
+
 
 #ifdef _DEBUG_
     qDebug() << "*** locals of" << me->d_name << "after allocation";
@@ -1416,15 +1494,6 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         qDebug() << QString("%1\tf/t:%2-%3\tn:%4\ts:%5").arg(all[i]->d_name.constData())
                     .arg(all[i]->d_from).arg(all[i]->d_to).arg(all[i]->d_n).arg(all[i]->d_slot).toUtf8().constData();
 
-    for( int i = pool.size() - 1; i >= 0; i-- )
-    {
-        if( pool.at(i) )
-        {
-            qDebug() << "frame size" << i + 1;
-
-            break;
-        }
-    }
 #endif
 
     return true;
@@ -1479,7 +1548,6 @@ bool Assembler::checkSlotOrder(const Assembler::Stmts& stmts)
             }
             break;
         case JitBytecode::OP_RET:
-            if( s.d_vals.size() == 2 )
             {
                 const int n = s.d_vals[1].toInt();
                 const Var* v = toVar(s.d_vals[0]);
@@ -1492,9 +1560,181 @@ bool Assembler::checkSlotOrder(const Assembler::Stmts& stmts)
     return true;
 }
 
-bool Assembler::generateCode(const Assembler::Stmts& stmts)
+bool Assembler::checkTestOp(const Assembler::Stmts& stmts, int pc)
 {
+    Q_ASSERT( pc < stmts.size() );
+    switch( stmts[pc].d_op )
+    {
+    case JitBytecode::OP_ISLT:
+    case JitBytecode::OP_ISGE:
+    case JitBytecode::OP_ISLE:
+    case JitBytecode::OP_ISGT:
+    case JitBytecode::OP_ISEQV:
+    case JitBytecode::OP_ISNEV:
+    case JitBytecode::OP_ISEQS:
+    case JitBytecode::OP_ISNES:
+    case JitBytecode::OP_ISEQN:
+    case JitBytecode::OP_ISNEN:
+    case JitBytecode::OP_ISEQP:
+    case JitBytecode::OP_ISNEP:
+    case JitBytecode::OP_ISTC:
+    case JitBytecode::OP_ISFC:
+    case JitBytecode::OP_IST:
+    case JitBytecode::OP_ISF:
+        if( pc == stmts.size() - 1 || stmts[pc+1].d_op != JitBytecode::OP_JMP )
+            return error( stmts[pc].d_st, tr("expecting JMP after comparison or test ops"));
+        break;
+    }
     return true;
+}
+
+bool Assembler::generateCode(Func* f, const Stmts& stmts)
+{
+    d_comp.setUpvals(f->getUpvals());
+    d_comp.setVarNames(f->getVarNames());
+
+    for( int pc = 0; pc < stmts.size(); pc++ )
+    {
+        Stmt s = stmts[pc];
+        const JitBytecode::Op op = JitBytecode::Op(s.d_op);
+        switch( op )
+        {
+        case JitBytecode::OP_CAT:
+            {
+                // replace C count by slot number relative to B
+                const int b = toValue(f, JitBytecode::typeBFromOp(s.d_op), s.d_vals[1] );
+                s.d_vals[2] = b + s.d_vals[2].toUInt() - 1;
+            }
+            break;
+        case JitBytecode::OP_KNIL:
+            {
+                // replace C count by slot number relative to A
+                const int a = toValue(f, JitBytecode::typeAFromOp(s.d_op), s.d_vals[0] );
+                s.d_vals[2] = a + s.d_vals[2].toUInt() - 1;
+            }
+            break;
+        case JitBytecode::OP_RET0:
+        case JitBytecode::OP_RET1:
+        case JitBytecode::OP_RET:
+            // Operand D is one plus the number of results to return.
+            s.d_vals[1] = s.d_vals[1].toUInt() + 1;
+            break;
+        case JitBytecode::OP_CALL:
+            // Operand C is one plus the number of fixed arguments.
+            s.d_vals[2] = s.d_vals[2].toUInt() + 1;
+            // Operand B is one plus the number of return values (MULTRES is not supported)
+            s.d_vals[1] = s.d_vals[1].toUInt() + 1;
+            break;
+        case JitBytecode::OP_CALLT:
+            // Operand C is one plus the number of fixed arguments.
+            s.d_vals[1] = s.d_vals[1].toUInt() + 1;
+            break;
+        default:
+            break;
+        }
+
+        if( JitBytecode::formatFromOp( s.d_op ) == JitBytecode::ABC )
+        {
+            Q_ASSERT( s.d_vals.size() == 3 );
+            const int a = toValue(f, JitBytecode::typeAFromOp(s.d_op), s.d_vals[0] );
+            const int b = toValue(f, JitBytecode::typeBFromOp(s.d_op), s.d_vals[1] );
+            const int c = toValue(f, JitBytecode::typeCdFromOp(s.d_op), s.d_vals[2] );
+            if( a < 0 || b < 0 || c < 0 )
+                return error( s.d_st, tr("internal arument error") );
+            d_comp.addAbc( op, a, b, c, s.d_st->d_tok.d_lineNr );
+        }else
+        {
+            Q_ASSERT( s.d_vals.size() == 2 );
+            const int a = toValue(f, JitBytecode::typeAFromOp(s.d_op), s.d_vals[0] );
+            const int d = toValue(f, JitBytecode::typeBFromOp(s.d_op), s.d_vals[1] );
+            if( a < 0 || d < 0 )
+                return error( s.d_st, tr("internal arument error") );
+            d_comp.addAd( op, a, d, s.d_st->d_tok.d_lineNr );
+        }
+    }
+    return true;
+}
+
+int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t, const QVariant& v)
+{
+    switch( t )
+    {
+    case JitBytecode::Instruction::_var:
+    case JitBytecode::Instruction::_dst:
+    case JitBytecode::Instruction::_rbase:
+    case JitBytecode::Instruction::_base:
+        if( Var* vv = toVar(v) )
+            return vv->d_slot;
+        else if( JitBytecode::isNumber(v) )
+        {
+            const qint32 slot = v.toInt();
+            if( slot < 0 || slot > LJ_MAX_SLOTS )
+                return -1;
+            return slot;
+        }
+        break;
+    case JitBytecode::Instruction::_str:
+        if( JitBytecode::isString(v) )
+            return d_comp.getConstSlot(v); // TODO negate
+        break;
+    case JitBytecode::Instruction::_num:
+        if( JitBytecode::isNumber(v) )
+            return d_comp.getConstSlot(v);
+        break;
+    case JitBytecode::Instruction::_pri:
+        if( v.isNull() )
+            return 0;
+        else if( v.type() == QVariant::Bool )
+        {
+            if( v.toBool() )
+                return 2;
+            else
+                return 1;
+        }
+        break;
+    case JitBytecode::Instruction::_cdata:
+        return d_comp.getConstSlot(v); // TODO negate
+    case JitBytecode::Instruction::_lit:
+    case JitBytecode::Instruction::_jump:
+        if( JitBytecode::isNumber(v) )
+        {
+            qint32 i = v.toInt();
+            if( i >= 0 && i <= USHRT_MAX )
+                return i;
+        }
+        break;
+    case JitBytecode::Instruction::_lits:
+        if( JitBytecode::isNumber(v) )
+        {
+            qint32 i = v.toInt();
+            if( i >= SHRT_MIN && i <= SHRT_MAX )
+                return i;
+        }
+        break;
+    case JitBytecode::Instruction::_uv:
+        if( Var* vv = toVar(v) )
+        {
+            return f->resolveUpval(vv,false);
+        }else if( JitBytecode::isNumber(v) )
+            return v.toUInt();
+        break;
+    case JitBytecode::Instruction::_func:
+        if( Named* n = v.value<Named*>() )
+        {
+            Func* f = n->toFunc();
+            Q_ASSERT( f );
+            return f->d_id;
+        }
+        break;
+    case JitBytecode::Instruction::_tab:
+        if( v.canConvert<JitBytecode::ConstTable>() )
+            return d_comp.getConstSlot(v); // TODO negate
+        break;
+    default:
+        return 0;
+    }
+
+    return -1;
 }
 
 Assembler::Named* Assembler::derefDesig(SynTree* st, Assembler::Func* me, bool onlyLocalVars)
@@ -1648,6 +1888,58 @@ Assembler::Named*Assembler::Func::findLocal(const QByteArray& name) const
         return i.value();
     else
         return 0;
+}
+
+int Assembler::Func::resolveUpval(Assembler::Var* v, bool recursive)
+{
+    if( v->d_func == this )
+        return -1;
+    Upvals::const_iterator i = d_upvals.find(v);
+    if( i != d_upvals.end() )
+        return i.value();
+    const int nr = d_upvals.size();
+    d_upvals[ v ] = nr;
+    if( recursive && d_outer && d_outer != v->d_func )
+        d_outer->resolveUpval(v,recursive);
+    return nr;
+}
+
+JitComposer::UpvalList Assembler::Func::getUpvals() const
+{
+    JitComposer::UpvalList res( d_upvals.size() );
+
+    Upvals::const_iterator i;
+    for( i = d_upvals.begin(); i != d_upvals.end(); ++i )
+    {
+        Q_ASSERT( d_outer );
+        JitComposer::Upval u;
+        u.d_name = i.key()->d_name;
+        if( i.key()->d_func == d_outer )
+        {
+            u.d_uv = i.key()->d_slot;
+            u.d_isLocal = true;
+        }else
+            u.d_uv = d_outer->resolveUpval(i.key(), false );
+        res[i.value()] = u;
+    }
+    return res;
+}
+
+JitComposer::VarNameList Assembler::Func::getVarNames() const
+{
+    JitComposer::VarNameList res( d_firstUnused.d_slot );
+    Names::const_iterator i;
+    for( i = d_names.begin(); i != d_names.end(); ++i )
+    {
+        if( Var* v = i.value()->toVar())
+        {
+            JitComposer::VarName& n = res[v->d_slot];
+            n.d_name = v->d_name;
+            n.d_from = v->d_from;
+            n.d_to = v->d_to;
+        }
+    }
+    return res;
 }
 
 Assembler::Arr::~Arr()

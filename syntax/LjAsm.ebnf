@@ -101,8 +101,8 @@ RET_ ::= RET [ \LA: 1:ident & 2:!':' \ desig [ posint ] ] // number of returns, 
 
 FORI_ ::= FORI desig label
 FORL_ ::= FORL desig label
-LOOP_ ::= LOOP
-JMP_ ::= JMP label
+LOOP_ ::= LOOP 
+JMP_ ::= JMP label 
 
 // Not yet implemented operators
 // TSETM, CALLM, CALLMT, RETM, VARG, ITERC, ITERN, ITERN

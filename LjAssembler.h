@@ -59,6 +59,7 @@ namespace Ljas
             QVariant d_val;
             virtual bool isConst() const { return true; }
         };
+        struct Func;
         struct Var : public Named
         {
             uint d_from : 24;
@@ -68,8 +69,9 @@ namespace Ljas
             uint d_slot : 8;
             Var* d_next;
             Var* d_prev;
+            Func* d_func;
             virtual bool isVar() const { return true; }
-            Var():d_from(0),d_to(0),d_slot(0),d_next(0),d_prev(0),d_uv(0),d_n(1){}
+            Var():d_from(0),d_to(0),d_slot(0),d_next(0),d_prev(0),d_func(0),d_uv(0),d_n(1){}
             bool isUnused() const;
             bool isFixed() const;
             QPair<int,int> bounds() const; // from to of all n
@@ -86,13 +88,20 @@ namespace Ljas
             typedef QMap<QByteArray,Named*> Names; // Map to sort alphabetically
             Names d_names; // owned
             QList<Var*> d_params; // not owned
+            typedef QHash<Var*,quint16> Upvals;
+            Upvals d_upvals; // not owned
             Func* d_outer;
             SynTree* d_st;
-            Func():d_outer(0),d_st(0) {}
+            quint16 d_id;
+            Var d_firstUnused;
+            Func():d_outer(0),d_st(0),d_id(0) {}
             ~Func();
             virtual bool isFunc() const { return true; }
             Named* findAll(const QByteArray& name , bool* isLocal = 0) const;
             Named* findLocal(const QByteArray& name ) const;
+            int resolveUpval( Var*, bool recursive = true );
+            Lua::JitComposer::UpvalList getUpvals() const;
+            Lua::JitComposer::VarNameList getVarNames() const;
         };
         typedef QHash<QByteArray,quint32> Labels;
         struct Stmt
@@ -124,10 +133,12 @@ namespace Ljas
         bool fetchVcsnp( SynTree*, Stmt&, Func* );
         bool fetchCsnp( SynTree*, Stmt&, Func* );
         bool fetchVcn( SynTree*, Stmt&, Func* );
-        bool checkJumps( Stmts&, const Labels& );
+        bool checkJumpsAndMore( Stmts&, const Labels& );
         bool allocateRegisters3(Func* me );
         bool checkSlotOrder(const Stmts& stmts);
-        bool generateCode(const Stmts& stmts);
+        bool checkTestOp( const Stmts& stmts, int pc );
+        bool generateCode(Func*,const Stmts& stmts);
+        int toValue( Func*, Lua::JitBytecode::Instruction::FieldType, const QVariant& );
         Named* derefDesig( SynTree*, Func*, bool onlyLocalVars = true );
         static SynTree* findFirstChild(const SynTree*, int type , int startWith = 0);
         static SynTree* flatten( SynTree*, int stopAt = 0 );

@@ -28,23 +28,44 @@ namespace Lua
     class JitComposer : public QObject
     {
     public:
+        struct Upval
+        {
+            quint16 d_uv : 14;
+            quint16 d_isLocal : 1;
+            quint16 d_isRo : 1;
+            QByteArray d_name;
+            Upval():d_uv(0),d_isLocal(0),d_isRo(0){}
+        };
+        typedef QVector<Upval> UpvalList;
+
+        struct VarName
+        {
+            QByteArray d_name;
+            quint32 d_from;
+            quint32 d_to;
+            VarName():d_from(0),d_to(0){}
+        };
+        typedef QVector<VarName> VarNameList;
+
         explicit JitComposer(QObject *parent = 0);
 
         void clear();
 
-        bool openFunction(quint8 parCount, const QByteArray& sourceRef, int firstLine = -1, int lastLine = -1 );
-        bool closeFunction();
+        int openFunction(quint8 parCount, const QByteArray& sourceRef, int firstLine = -1, int lastLine = -1 );
+        bool closeFunction(quint8 frameSize);
 
-        bool addOp( JitBytecode::Op, quint8 a, quint8 b, int cd, int line = -1 );
-        bool addOp( JitBytecode::Op, quint8 a, int d, int line = -1 );
-#if 0
-        bool addAD( JitBytecode::Op, quint8 a, quint32 d, int line = -1 );
-        bool addAD( JitBytecode::Op, quint8 a, double d, int line = -1 );
-        bool addAD( JitBytecode::Op, quint8 a, const QByteArray& d, int line = -1 );
-#endif
+        bool addAbc( JitBytecode::Op, quint8 a, quint8 b, quint8 c, int line = -1 );
+        bool addAd(JitBytecode::Op, quint8 a, quint16 d, int line = -1 );
+        void setUpvals( const UpvalList& );
+        void setVarNames( const VarNameList& );
+
         int getLocalSlot( const QByteArray& name );
         int getConstSlot( const QVariant& );
 
+        bool write(QIODevice* out, const QString& path = QString() );
+        bool write( const QString& file );
+
+    protected:
         struct Function : public QSharedData // only public because of Q_DECLARE_METATYPE
         {
             Function():d_frameSize(0),d_numOfParams(0),d_firstLine(0),d_lastLine(0) {}
@@ -52,6 +73,8 @@ namespace Lua
             QHash<QVariant,int> d_gcConst;
             QHash<QVariant,int> d_numConst;
             QHash<QByteArray,int> d_var;
+            UpvalList d_upvals;
+            VarNameList d_varNames;
             QByteArray d_sourceRef; // File path in top function, whatever in subordinate functions
             quint8 d_numOfParams,d_frameSize;
             int d_firstLine, d_lastLine;
@@ -60,12 +83,12 @@ namespace Lua
             QList<quint32> d_lines;
         };
         typedef QExplicitlySharedDataPointer<Function> FuncRef;
+        friend struct QMetaTypeId<FuncRef>;
 
-    protected:
+        bool addOpImp( JitBytecode::Op, quint8 a, quint8 b, quint16 cd, int line = -1 );
         QList<FuncRef> d_funcStack;
         FuncRef d_top;
     };
 }
-Q_DECLARE_METATYPE(Lua::JitComposer::FuncRef)
 
 #endif // LUAJITCOMPOSER_H

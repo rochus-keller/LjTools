@@ -482,7 +482,7 @@ bool AsmEditor::compile()
         return false;
 
     Ljas::Assembler ass(&err);
-    if( ass.process( p.d_root.d_children.first() ) )
+    if( ass.process( p.d_root.d_children.first(), d_edit->getPath().toUtf8() ) )
     {
         d_bc = ass.getBc();
         return true;

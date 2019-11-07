@@ -117,7 +117,7 @@ void Terminal2::keyPressEvent(QKeyEvent *e)
 			if( !d_line.isEmpty() )
 				d_histo.append( d_line );
 			d_next.clear();
-			if( d_lua->isWaiting() )
+            if( d_lua->isWaiting() )
             {
                 ExpressionParser p;
                 if( p.parseAndPrint( d_line.toLatin1(), d_lua, false ) )

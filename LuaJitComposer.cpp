@@ -18,7 +18,11 @@
 */
 
 #include "LuaJitComposer.h"
+
+#include <QFile>
 using namespace Lua;
+
+Q_DECLARE_METATYPE(JitComposer::FuncRef)
 
 JitComposer::JitComposer(QObject *parent) : QObject(parent)
 {
@@ -28,9 +32,10 @@ JitComposer::JitComposer(QObject *parent) : QObject(parent)
 void JitComposer::clear()
 {
     d_funcStack.clear();
+    d_top = FuncRef();
 }
 
-bool JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, int firstLine, int lastLine)
+int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, int firstLine, int lastLine)
 {
     FuncRef f(new Function());
     f->d_sourceRef = sourceRef;
@@ -42,16 +47,17 @@ bool JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, int
     else
         d_top = f;
     d_funcStack.push_back( f );
-    return true;
+    return getConstSlot(QVariant::fromValue(f));
 }
 
-bool JitComposer::closeFunction()
+bool JitComposer::closeFunction(quint8 frameSize)
 {
+    d_funcStack.back()->d_frameSize = frameSize;
     d_funcStack.pop_back();
     return true;
 }
 
-bool JitComposer::addOp(JitBytecode::Op op, quint8 a, quint8 b, int cd, int line)
+bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, int line)
 {
     if( d_funcStack.isEmpty() )
         return false;
@@ -61,21 +67,11 @@ bool JitComposer::addOp(JitBytecode::Op op, quint8 a, quint8 b, int cd, int line
     if( JitBytecode::formatFromOp(op) == JitBytecode::ABC )
     {
         bc |= b << 24;
-        if( cd < 0 || cd > 255 )
+        if( cd > 255 )
             return false;
         bc |= cd << 16;
     }else
     {
-        const JitBytecode::Instruction::FieldType t = JitBytecode::typeCdFromOp(op);
-        if( t == JitBytecode::Instruction::_lits || JitBytecode::Instruction::_jump )
-        {
-            if( cd < SHRT_MIN || cd > SHRT_MAX )
-                return false;
-        }else
-        {
-            if( cd < 0 || cd > USHRT_MAX )
-                return false;
-        }
         bc |= cd << 16;
     }
     d_funcStack.back()->d_byteCodes.append(bc);
@@ -84,54 +80,29 @@ bool JitComposer::addOp(JitBytecode::Op op, quint8 a, quint8 b, int cd, int line
     return true;
 }
 
-bool JitComposer::addOp(JitBytecode::Op op, quint8 a, int d, int line)
+bool JitComposer::addAbc(JitBytecode::Op op, quint8 a, quint8 b, quint8 c, int line)
 {
-    return addOp( op, a, 0, d, line );
+    return addOpImp( op, a, b, c, line );
 }
 
-#if 0
-bool JitComposer::addAD(JitBytecode::Op op, quint8 a, quint32 d, int line)
+bool JitComposer::addAd(JitBytecode::Op op, quint8 a, quint16 d, int line)
 {
-    if( d_funcStack.isEmpty() )
-        return false;
-    quint16 id = 0;
-    if( !d_funcStack.back()->d_numConst.contains(d) )
-    {
-        id = d_funcStack.size();
-        d_funcStack.back()->d_numConst[d] = id;
-    }else
-        id = d_funcStack.back()->d_numConst[d];
-    return addOp(op, a, 0, id, line );
+    return addOpImp( op, a, 0, d, line );
 }
 
-bool JitComposer::addAD(JitBytecode::Op op, quint8 a, double d, int line)
+void JitComposer::setUpvals(const JitComposer::UpvalList& l)
 {
     if( d_funcStack.isEmpty() )
-        return false;
-    quint16 id = 0;
-    if( !d_funcStack.back()->d_numConst.contains(d) )
-    {
-        id = d_funcStack.size();
-        d_funcStack.back()->d_numConst[d] = id;
-    }else
-        id = d_funcStack.back()->d_numConst[d];
-    return addOp(op, a, 0, id, line );
+        return;
+    d_funcStack.back()->d_upvals = l;
 }
 
-bool JitComposer::addAD(JitBytecode::Op op, quint8 a, const QByteArray& d, int line)
+void JitComposer::setVarNames(const JitComposer::VarNameList& l)
 {
     if( d_funcStack.isEmpty() )
-        return false;
-    quint16 id = 0;
-    if( !d_funcStack.back()->d_gcConst.contains(d) )
-    {
-        id = d_funcStack.size();
-        d_funcStack.back()->d_gcConst[d] = id;
-    }else
-        id = d_funcStack.back()->d_gcConst[d];
-    return addOp(op, a, 0, id, line );
+        return;
+    d_funcStack.back()->d_varNames = l;
 }
-#endif
 
 int JitComposer::getLocalSlot(const QByteArray& name)
 {
@@ -165,5 +136,25 @@ int JitComposer::getConstSlot(const QVariant& v)
     }else
         slot = p->value(v);
     return slot;
+}
+
+bool JitComposer::write(QIODevice* out, const QString& path)
+{
+    if( !d_funcStack.isEmpty() || d_top.constData() == 0 )
+        return false;
+
+    JitBytecode bc;
+
+
+
+    return true;
+}
+
+bool JitComposer::write(const QString& file)
+{
+    QFile out(file);
+    if( !out.open(QIODevice::WriteOnly|QIODevice::Unbuffered) )
+        return false;
+    return write(&out);
 }
 

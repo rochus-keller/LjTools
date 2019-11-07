@@ -571,6 +571,14 @@ JitBytecode::Instruction::FieldType JitBytecode::typeBFromOp(quint8 op)
         return Instruction::Unused;
 }
 
+JitBytecode::Instruction::FieldType JitBytecode::typeAFromOp(quint8 op)
+{
+    if( op < BC__MAX )
+        return (Instruction::FieldType)s_byteCodes[op].d_fa;
+    else
+        return Instruction::Unused;
+}
+
 bool JitBytecode::parseHeader(QIODevice* in)
 {
     QByteArray buf = in->read(4);
