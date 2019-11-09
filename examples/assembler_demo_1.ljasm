@@ -1,0 +1,59 @@
+-- programming in LuaJIT Assembler ;-)
+function Main()
+	var { print val } x
+	{ R0 R1 R2 } thunk inc
+	
+	function Thunk(set val) 	
+		var	tmp 
+	begin
+		ISF set JMP Get	-- if not set goto Get
+		USET  x val	-- else x := val
+		JMP End
+	Get:
+		UGET  tmp x
+		RET  tmp
+	End:
+		RET 		
+	end Thunk
+	
+	function Inc(y) 	
+		var	{ R0 R1 R2 } tmp
+	begin
+		-- call tmp := y()
+		MOV  R0 y
+		CALL  R0 1
+		MOV tmp R0
+		
+		-- call y( true, tmp + 1 )
+		MOV  R0 y		
+		KSET  R1 true
+		MOV R2 tmp
+		ADD  R2 R2 1 -- R2 += 1
+		CALL  R0 0 2
+		
+		RET 		
+	end Inc
+	
+begin
+	-- init
+	KSET x 23
+	FNEW thunk Thunk
+	FNEW inc Inc
+	
+	-- call inc(thunk)
+	MOV R0 inc
+	MOV R1 thunk
+	CALL R0 0 1
+	
+	-- call inc(thunk)
+	MOV R0 inc
+	MOV R1 thunk
+	CALL R0 0 1
+
+	-- print result
+	GGET print "print"
+	MOV val x
+	CALL print 0 1
+	
+	RET
+end Main

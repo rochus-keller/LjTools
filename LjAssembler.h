@@ -29,12 +29,17 @@ namespace Ljas
     class Errors;
     class Assembler : public QObject // for tr
     {
+    public:
+
+        Assembler(Errors*);
+        bool process( SynTree*, const QByteArray& sourceRef = QByteArray() );
+        const QByteArray& getBc() const { return d_bc; }
+
     protected:
         struct Const;
         struct Var;
         struct Func;
         struct Arr;
-    public:
         struct Named
         {
             QByteArray d_name;
@@ -49,11 +54,6 @@ namespace Ljas
             Arr* toArr() { return isArr() ? static_cast<Arr*>(this) : 0; }
         };
 
-        Assembler(Errors*);
-        bool process( SynTree*, const QByteArray& sourceRef = QByteArray() );
-        const QByteArray& getBc() const { return d_bc; }
-
-    protected:
         struct Const : public Named
         {
             QVariant d_val;
@@ -146,16 +146,17 @@ namespace Ljas
         static bool sortVars1( Var* lhs, Var* rhs );
         static bool checkSlotOrder( const Var*, int n );
         static Var* toVar( const QVariant& );
+        static Var* toVar( Named* );
         static void findOverlaps( VarList&, Var* header );
         static void resolveOverlaps( const VarList& );
     private:
+        friend struct QMetaTypeId<Named*>;
         Errors* d_errs;
         Lua::JitComposer d_comp;
         QByteArray d_bc;
         QByteArray d_ref;
+        Func d_top;
     };
 }
-
-Q_DECLARE_METATYPE( Ljas::Assembler::Named* )
 
 #endif // LJASSEMBLER_H

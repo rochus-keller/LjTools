@@ -18,11 +18,9 @@
 */
 
 #include "LuaJitComposer.h"
-
+#include <QtDebug>
 #include <QFile>
 using namespace Lua;
-
-Q_DECLARE_METATYPE(JitComposer::FuncRef)
 
 JitComposer::JitComposer(QObject *parent) : QObject(parent)
 {
@@ -31,35 +29,44 @@ JitComposer::JitComposer(QObject *parent) : QObject(parent)
 
 void JitComposer::clear()
 {
-    d_funcStack.clear();
-    d_top = FuncRef();
+    d_bc.clear();
 }
 
 int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, int firstLine, int lastLine)
 {
-    FuncRef f(new Function());
-    f->d_sourceRef = sourceRef;
-    f->d_firstLine = firstLine;
-    f->d_lastLine = lastLine;
-    f->d_numOfParams = parCount;
-    if( !d_funcStack.empty() )
-        d_funcStack.back()->d_gcConst.insert( QVariant::fromValue(f),d_funcStack.back()->d_gcConst.size());
-    else
-        d_top = f;
-    d_funcStack.push_back( f );
-    return getConstSlot(QVariant::fromValue(f));
+    if( d_bc.d_funcs.isEmpty() )
+        d_bc.d_name = sourceRef;
+    JitBytecode::FuncRef f(new Func());
+    f->d_sourceFile = sourceRef;
+    f->d_firstline = firstLine;
+    f->d_numline = lastLine - firstLine + 1;
+    f->d_numparams = parCount;
+    const int slot = getConstSlot(QVariant::fromValue(f));
+    d_bc.d_fstack.push_back( f );
+    d_bc.d_funcs.append(f);
+    return slot;
 }
 
 bool JitComposer::closeFunction(quint8 frameSize)
 {
-    d_funcStack.back()->d_frameSize = frameSize;
-    d_funcStack.pop_back();
+    Func* f = static_cast<Func*>(d_bc.d_fstack.back().data());
+    f->d_framesize = frameSize;
+
+    QHash<QVariant,int>::const_iterator n;
+    f->d_constNums.resize(f->d_numConst.size());
+    for( n = f->d_numConst.begin(); n != f->d_numConst.end(); ++n )
+        f->d_constNums[n.value()] = n.key();
+    f->d_constObjs.resize(f->d_gcConst.size());
+    for( n = f->d_gcConst.begin(); n != f->d_gcConst.end(); ++n )
+        f->d_constObjs[ f->d_gcConst.size() - n.value() - 1] = n.key(); // reverse
+
+    d_bc.d_fstack.pop_back();
     return true;
 }
 
 bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, int line)
 {
-    if( d_funcStack.isEmpty() )
+    if( d_bc.d_fstack.isEmpty() )
         return false;
 
     quint32 bc = op;
@@ -74,9 +81,9 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, i
     {
         bc |= cd << 16;
     }
-    d_funcStack.back()->d_byteCodes.append(bc);
+    d_bc.d_fstack.back()->d_byteCodes.append(bc);
     if( line > 0 )
-        d_funcStack.back()->d_lines.append(line);
+        d_bc.d_fstack.back()->d_lines.append(line);
     return true;
 }
 
@@ -92,42 +99,65 @@ bool JitComposer::addAd(JitBytecode::Op op, quint8 a, quint16 d, int line)
 
 void JitComposer::setUpvals(const JitComposer::UpvalList& l)
 {
-    if( d_funcStack.isEmpty() )
+    if( d_bc.d_fstack.isEmpty() )
         return;
-    d_funcStack.back()->d_upvals = l;
+    Func* f = static_cast<Func*>( d_bc.d_fstack.back().data() );
+    foreach( const Upval& uv, l )
+    {
+        quint16 tmp = uv.d_uv;
+        if( uv.d_isLocal )
+            tmp |= JitBytecode::Function::UvLocalMask;
+        if( uv.d_isRo )
+            tmp |= JitBytecode::Function::UvImmutableMask;
+        f->d_upvals << tmp;
+        if( !uv.d_name.isEmpty() )
+            f->d_upNames << uv.d_name;
+    }
 }
 
 void JitComposer::setVarNames(const JitComposer::VarNameList& l)
 {
-    if( d_funcStack.isEmpty() )
+    if( d_bc.d_fstack.isEmpty() )
         return;
-    d_funcStack.back()->d_varNames = l;
+    Func* f = static_cast<Func*>( d_bc.d_fstack.back().data() );
+    foreach( const VarName& vn, l )
+    {
+        JitBytecode::Function::Var v;
+        v.d_startpc = vn.d_from;
+        v.d_endpc = vn.d_to;
+        v.d_name = vn.d_name;
+        f->d_vars.append(v);
+    }
 }
 
 int JitComposer::getLocalSlot(const QByteArray& name)
 {
-    if( d_funcStack.isEmpty() )
+    // Obsolete?
+
+    if( d_bc.d_fstack.isEmpty() )
         return -1;
     int slot;
-    if( !d_funcStack.back()->d_var.contains(name) )
+    Func* f = static_cast<Func*>( d_bc.d_fstack.back().data() );
+    if( !f->d_var.contains(name) )
     {
-        slot = d_funcStack.back()->d_var.size();
-        d_funcStack.back()->d_var[name] = slot;
+        slot = f->d_var.size();
+        f->d_var[name] = slot;
     }else
-        slot = d_funcStack.back()->d_var[name];
+        slot = f->d_var[name];
     return slot;
 }
 
 int JitComposer::getConstSlot(const QVariant& v)
 {
-    if( d_funcStack.isEmpty() )
+    if( d_bc.d_fstack.isEmpty() )
         return -1;
 
+    Func* f = static_cast<Func*>( d_bc.d_fstack.back().data() );
     QHash<QVariant,int>* p = 0;
     if( JitBytecode::isNumber(v) )
-        p = &d_funcStack.back()->d_numConst;
+        p = &f->d_numConst;
     else
-        p = &d_funcStack.back()->d_gcConst;
+        p = &f->d_gcConst;
     int slot;
     if( !p->contains(v) )
     {
@@ -140,21 +170,19 @@ int JitComposer::getConstSlot(const QVariant& v)
 
 bool JitComposer::write(QIODevice* out, const QString& path)
 {
-    if( !d_funcStack.isEmpty() || d_top.constData() == 0 )
+    if( d_bc.d_funcs.isEmpty() )
         return false;
-
-    JitBytecode bc;
-
-
-
-    return true;
+    if( d_bc.d_fstack.isEmpty() )
+        d_bc.d_fstack.push_back( d_bc.d_funcs.first() );
+    return d_bc.write(out,path);
 }
 
 bool JitComposer::write(const QString& file)
 {
-    QFile out(file);
-    if( !out.open(QIODevice::WriteOnly|QIODevice::Unbuffered) )
+    if( d_bc.d_funcs.isEmpty() )
         return false;
-    return write(&out);
+    if( d_bc.d_fstack.isEmpty() )
+        d_bc.d_fstack.push_back( d_bc.d_funcs.first() );
+    return d_bc.write(file);
 }
 

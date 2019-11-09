@@ -52,7 +52,6 @@ namespace Ljas {
 			R_UGET_,
 			R_UNM_,
 			R_USET_,
-			R_array,
 			R_cname,
 			R_comment_,
 			R_const_decls,

@@ -66,28 +66,16 @@ namespace Lua
         bool write( const QString& file );
 
     protected:
-        struct Function : public QSharedData // only public because of Q_DECLARE_METATYPE
-        {
-            Function():d_frameSize(0),d_numOfParams(0),d_firstLine(0),d_lastLine(0) {}
+        JitBytecode d_bc;
 
+        struct Func : public JitBytecode::Function
+        {
             QHash<QVariant,int> d_gcConst;
             QHash<QVariant,int> d_numConst;
             QHash<QByteArray,int> d_var;
-            UpvalList d_upvals;
-            VarNameList d_varNames;
-            QByteArray d_sourceRef; // File path in top function, whatever in subordinate functions
-            quint8 d_numOfParams,d_frameSize;
-            int d_firstLine, d_lastLine;
-
-            QList<quint32> d_byteCodes;
-            QList<quint32> d_lines;
         };
-        typedef QExplicitlySharedDataPointer<Function> FuncRef;
-        friend struct QMetaTypeId<FuncRef>;
 
         bool addOpImp( JitBytecode::Op, quint8 a, quint8 b, quint16 cd, int line = -1 );
-        QList<FuncRef> d_funcStack;
-        FuncRef d_top;
     };
 }
 

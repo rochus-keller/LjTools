@@ -27,7 +27,7 @@ using namespace Ljas;
 using namespace Lua;
 
 
-bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& path)
+bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& path, bool stripped)
 {
     QTextStream out(f);
     out.setCodec("UTF-8");
@@ -36,8 +36,11 @@ bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& pat
         out << "Lua source";
     else
         out << path;
+    if( !bc.isStripped() && !stripped )
+        out << endl << "-- NOTE that disassembling unstripped code changes behaviour of FORI/FORL operators" << endl;
+    // TODO: extend syntax to use predefined register allocations
     out << endl << endl;
-    if( !writeFunc( out, bc.getRoot(), 0 ) )
+    if( !writeFunc( out, bc.getRoot(), stripped, 0 ) )
         return false;
     return true;
 }
@@ -56,26 +59,33 @@ static inline QByteArray varName( const QByteArray& name, int v )
         return name;
 }
 
-bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int level)
+bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool stripped, int level)
 {
     if( f == 0 )
         return false;
 
     f->calcVarNames();
 
+    const bool doStrip = f->isStripped() || stripped;
+
+    //int nextR = 0;
+    const int nextR = f->d_numparams;
     out << ws(level) << "function F" << f->d_id << "(";
     for( int i = 0; i < f->d_numparams; i++ )
     {
-        if( i < f->d_vars.size() )
+        if( i < f->d_varNames.size() && !doStrip )
         {
             if( i != 0 )
                 out << " ";
-            out << f->d_vars[i].d_name;
+            Q_ASSERT( !f->d_varNames[i].isEmpty() );
+            out << f->d_varNames[i];
         }else
         {
             if( i != 0 )
                 out << " ";
-            out << "__p" << i;
+            out << "R" << i;
+            // out << "__p" << i;
+            // nextR = i+1;
         }
     }
     out << ") ";
@@ -147,26 +157,49 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
     }
 #else
     // print variable declarations
-    QHash<QByteArray,int> unique;
-    QByteArray buf;
-    buf = ws(level+1);
-    buf += "var\t";
-    if( f->d_vars.size() > f->d_numparams )
+    if( f->d_framesize > f->d_numparams )
     {
-        buf += "{ ";
-        for( int i = f->d_numparams; i < f->d_varNames.size(); i++ )
+        QHash<QByteArray,int> unique;
+        QByteArray buf;
+        buf = ws(level+1);
+        buf += "var\t";
+        if( !doStrip && f->d_vars.size() > f->d_numparams )
         {
-            QByteArray name = f->d_varNames[i];
-            if( name.isEmpty() )
-                continue;
-            if( name.startsWith('(') )
-                continue; // don't use these as vars; they're used as Rx instead
+            buf += "{ ";
+            for( int i = f->d_numparams; i < f->d_varNames.size(); i++ )
+            {
+                QByteArray name = f->d_varNames[i];
+                if( name.isEmpty() )
+                    continue;
+                if( name.startsWith('(') )
+                    continue; // don't use these as vars; they're used as Rx instead
 
-            if( unique.contains(name) )
-                continue;
-            unique.insert(name,i);
+                if( unique.contains(name) )
+                    continue;
+                unique.insert(name,i);
 
-            buf += name + " ";
+                buf += name + " ";
+                if( buf.size() > 80 )
+                {
+                    out << buf << endl;
+                    buf = ws(level+2);
+                }
+            }
+            buf += "} ";
+        }
+
+        // print Rx declarations
+        out << buf;
+        buf.clear();
+        if( !doStrip && f->d_vars.size() > f->d_numparams )
+        {
+            out << endl;
+            buf = ws(level+2);
+        }
+        buf += "{ ";
+        for( int i = nextR; i < f->d_framesize; i++ )
+        {
+            buf += "R" + QByteArray::number( i ) + " ";
             if( buf.size() > 80 )
             {
                 out << buf << endl;
@@ -174,27 +207,8 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
             }
         }
         buf += "} ";
+        out << buf << endl;
     }
-    // print Rx declarations
-    out << buf;
-    buf.clear();
-    if( f->d_vars.size() > f->d_numparams )
-    {
-        out << endl;
-        buf = ws(level+2);
-    }
-    buf += "{ ";
-    for( int i = 0; i < f->d_framesize; i++ )
-    {
-        buf += "R" + QByteArray::number( i ) + " ";
-        if( buf.size() > 80 )
-        {
-            out << buf << endl;
-            buf = ws(level+2);
-        }
-    }
-    buf += "} ";
-    out << buf << endl;
 
 #endif
 
@@ -229,7 +243,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
         {
             if( funCount++ == 0 )
                 out << endl;
-            writeFunc(out, o.value<JitBytecode::FuncRef>().constData(), level+1 );
+            writeFunc(out, o.value<JitBytecode::FuncRef>().constData(), stripped, level+1 );
         }
     }
 
@@ -248,6 +262,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
         int lastLine = 0;
         for( int pc = 0; pc < f->d_byteCodes.size(); pc++ )
         {
+            QByteArray warning;
             if( labels.contains(pc) )
                 out << ws(level) << "__L" << pc << ":" << endl;
             JitBytecode::Instruction bc = JitBytecode::dissectInstruction(f->d_byteCodes[pc]);
@@ -316,7 +331,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
                 break;
             case JitBytecode::OP_RET:
                 out << "RET";
-                bc.d_tcd--;
+                bc.d_cd--; // Operand D is one plus the number of results to return.
                 break;
             case JitBytecode::OP_RET0:
                 out << "RET";
@@ -354,8 +369,11 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
                     bc.d_cd--;
                     if( bc.d_b >= 1 )
                         bc.d_b = bc.d_b - 1;
-                    else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here TODO
+                    else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here
+                    {
+                        warning = "original second argument is MULTRES (not supported)";
                         bc.d_b = 1;
+                    }
                     if( bc.d_b == 0 && bc.d_cd == 0 )
                     {
                         bc.d_tb = JitBytecode::Instruction::Unused;
@@ -366,11 +384,15 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
                 break;
             case JitBytecode::OP_CALLM:
                 {
+                    warning = "original is CALLM " + QByteArray::number(bc.d_b) + " "
+                            + QByteArray::number(bc.d_cd) + " (not supported)";
                     out << "CALL";
-                    // compared to CALL bc.d_cd is already the true number of args
+                    // compared to CALL bc.d_cd is already the true number of fixed args
+                    if( bc.d_cd == 0 )
+                        bc.d_cd = 1; // we return at least one fixed arg
                     if( bc.d_b >= 1 )
                         bc.d_b = bc.d_b - 1;
-                    else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here TODO
+                    else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here
                         bc.d_b = 1;
                     if( bc.d_b == 0 && bc.d_cd == 0 )
                     {
@@ -384,15 +406,47 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
                 out << "CALLT";
                 bc.d_cd--;
                 break;
+            case JitBytecode::OP_CALLMT:
+                warning = "original is CALLMT " + QByteArray::number(bc.d_cd) + " (not supported)";
+                if( bc.d_cd == 0 )
+                    bc.d_cd = 1; // we return at least one fixed arg
+                break;
+            case JitBytecode::OP_CAT:
+                out << "CAT";
+                bc.d_cd = bc.d_cd - bc.d_b + 1;
+                if( bc.d_cd == 1 )
+                    bc.d_tcd = JitBytecode::Instruction::Unused;
+                else
+                    bc.d_tcd = JitBytecode::Instruction::_lit;
+                break;
+                // implement later
+            case JitBytecode::OP_TSETM:
+            case JitBytecode::OP_RETM:
+            case JitBytecode::OP_VARG:
+            case JitBytecode::OP_ITERC:
+            case JitBytecode::OP_ITERN:
+            case JitBytecode::OP_ITERL:
+                // internals
+            case JitBytecode::OP_JFORI:
+            case JitBytecode::OP_IFORL:
+            case JitBytecode::OP_JFORL:
+            case JitBytecode::OP_IITERL:
+            case JitBytecode::OP_JITERL:
+            case JitBytecode::OP_ILOOP:
+            case JitBytecode::OP_JLOOP:
+            case JitBytecode::OP_ISNEXT:
+                warning = "operator not supported";
+                out << bc.d_name;
+                break;
             default:
                 out << bc.d_name;
                 break;
             }
             out << " ";
 
-            const QByteArray a = renderArg(f,bc.d_ta,bc.d_a,pc);
-            const QByteArray b = renderArg(f,bc.d_tb,bc.d_b,pc);
-            const QByteArray c = renderArg(f,bc.d_tcd,bc.getCd(),pc);
+            const QByteArray a = renderArg(f,bc.d_ta,bc.d_a,pc,stripped);
+            const QByteArray b = renderArg(f,bc.d_tb,bc.d_b,pc,stripped);
+            const QByteArray c = renderArg(f,bc.d_tcd,bc.getCd(),pc,stripped);
             if( bc.d_op == JitBytecode::OP_LOOP )
             {
                 // NOP
@@ -408,6 +462,8 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
                 if( !c.isEmpty() )
                     out << " " << c;
             }
+            if( !warning.isEmpty() )
+                out << " -- WARNING " << warning;
 
 #ifdef _DEBUG_
             out << " -- #" << pc + 1;
@@ -422,7 +478,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, int lev
             }
 
             out << endl;
-        }
+        } // end for each statement
 
     }
 
@@ -442,9 +498,27 @@ static inline QByteArray getPriConst(int i)
     }
 }
 
+static QByteArray escape( QByteArray str )
+{
+    str.replace('\\', "\\\\");
+    str.replace('\n', "\\n" );
+    str.replace('\a', "\\a" );
+    str.replace('\b', "\\b" );
+    str.replace('\f', "\\f" );
+    str.replace('\r', "\\r" );
+    str.replace('\t', "\\t" );
+    str.replace('\v', "\\v" );
+    str.replace('"', "\\\"" );
+    str.replace('\'', "\\'" );
+    return str;
+}
+
 static QByteArray tostring(const QVariant& v)
 {
-    if( JitBytecode::isString( v ) )
+    if( v.type() == QVariant::ByteArray )
+    {
+        return "\"" + escape( v.toByteArray() ) + "\"";
+    }else if( JitBytecode::isString( v ) )
         return "\"" + v.toString().toUtf8() + "\"";
     else if( JitBytecode::isNumber( v ) )
         return QByteArray::number( v.toDouble() );
@@ -452,7 +526,7 @@ static QByteArray tostring(const QVariant& v)
         return v.toByteArray();
 }
 
-QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int pc)
+QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int pc, bool stripped)
 {
     switch( t )
     {
@@ -465,11 +539,13 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
         {
             // int idx;
             // QByteArray name = varName(f->getVarName(pc, v, &idx ),idx);
-            QByteArray name = varName( v < f->d_varNames.size() ? f->d_varNames[v] : QByteArray(),v);
+            QByteArray name;
+            if( !stripped )
+                name= varName( v < f->d_varNames.size() ? f->d_varNames[v] : QByteArray(),v);
             if( !name.isEmpty() )
                 return name;
-            if( v < f->d_numparams && f->isStripped() )
-                return "__p" + QByteArray::number(v);
+//            if( v < f->d_numparams && ( f->isStripped() || stripped ) )
+//                return "__p" + QByteArray::number(v);
 #ifdef _USE_REGISTER_ARRAY_
             return "T[" + QByteArray::number(v) + "]";
 #else
@@ -496,16 +572,12 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
             if( up.second == 0 )
                 return "???";
 
-//            if( f->d_upNames[v] != up.second->getVarName(pc, up.first) ) // does not work because pc is not appropriate
-//                qDebug() << "inequal upval name pc" << pc << "F" << f->d_id << f->d_upNames[v]
-//                         << "F" << up.second->d_id << up.second->getVarName(pc, up.first);
-
             QByteArray quali;
             if( up.second != f )
                 quali = "F" + QByteArray::number(up.second->d_id) + ".";
 //            if( v < f->d_upNames.size() )
 //                return quali + f->d_upNames[v];
-            if( up.first < up.second->d_vars.size() )
+            if( up.first < up.second->d_varNames.size() && !stripped )
                 return quali + up.second->d_varNames[up.first];
             else
 #ifdef _USE_REGISTER_ARRAY_
@@ -531,9 +603,9 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
             JitBytecode::ConstTable t = f->d_constObjs[ f->d_constObjs.size() - v - 1 ].value<JitBytecode::ConstTable>();
             if( !t.d_array.isEmpty() )
             {
-                for( int i = 1; i < t.d_array.size(); i++ ) // index starts with one, zero is empty
+                for( int i = 0; i < t.d_array.size(); i++ )
                 {
-                    if( i != 1 )
+                    if( i != 0 )
                         out << " ";
                     out << tostring( t.d_array[i] );
                 }

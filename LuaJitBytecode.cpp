@@ -263,9 +263,9 @@ static QVariant bcread_ktabk(QIODevice* in )
   return QVariant();
 }
 
-QVariantList JitBytecode::readObjConsts( Function* f, QIODevice* in, quint32 len )
+JitBytecode::VariantList JitBytecode::readObjConsts( Function* f, QIODevice* in, quint32 len )
 {
-    QVariantList res;
+    VariantList res(len);
     for( int i = 0; i < len; i++ )
     {
         const quint32 tp = bcread_uleb128(in);
@@ -273,23 +273,25 @@ QVariantList JitBytecode::readObjConsts( Function* f, QIODevice* in, quint32 len
         {
             quint32 len = tp - BCDUMP_KGC_STR;
             const QByteArray str = in->read(len);
-            res.append(str);
+            res[i] = str;
         }else if( tp == BCDUMP_KGC_TAB )
         {
-            JitBytecode::ConstTable map;
+            ConstTable tbl;
             const quint32 narray = bcread_uleb128(in);
             const quint32 nhash = bcread_uleb128(in);
             if( narray )
             {
                 for (int j = 0; j < narray; j++)
-                  map.d_array << bcread_ktabk(in);
+                  tbl.d_array << bcread_ktabk(in);
+                // first item is always nil
+                tbl.d_array.pop_front();
             }
             if( nhash )
             {
                 for ( int j = 0; j < nhash; j++)
-                  map.d_hash.insert( bcread_ktabk(in), bcread_ktabk(in) );
+                  tbl.d_hash.insert( bcread_ktabk(in), bcread_ktabk(in) );
             }
-            res.append( QVariant::fromValue(map) );
+            res[i] = QVariant::fromValue(tbl);
         }else if (tp != BCDUMP_KGC_CHILD) {
             qCritical() << "FFI not supported";
         } else {
@@ -303,7 +305,7 @@ QVariantList JitBytecode::readObjConsts( Function* f, QIODevice* in, quint32 len
                     error(tr("invalid function hierarchy"));
                 else
                     r->d_outer = f;
-                res.append( QVariant::fromValue(r) );
+                res[i] = QVariant::fromValue(r);
                 d_fstack.pop_back();
             }
         }
@@ -311,9 +313,9 @@ QVariantList JitBytecode::readObjConsts( Function* f, QIODevice* in, quint32 len
     return res;
 }
 
-static QVariantList readNumConsts( QIODevice* in, quint32 len )
+static JitBytecode::VariantList readNumConsts( QIODevice* in, quint32 len )
 {
-    QVariantList res;
+    JitBytecode::VariantList res(len);
     for ( int i = 0; i < len; i++ )
     {
         const QByteArray ch = in->peek(1);
@@ -337,12 +339,12 @@ static QVariantList readNumConsts( QIODevice* in, quint32 len )
 #else
             // const quint32 test =  u.d + 6755399441055744.0;  /* 2^52 + 2^51 */
             //     if op == "TSETM " then kc = kc - 2^52 end ???
-            res << u.d;
+            res[i] = u.d;
 
 
 #endif
         } else {
-            res << lo;
+            res[i] = lo;
         }
     }
     return res;
@@ -491,7 +493,6 @@ bool JitBytecode::write(QIODevice* out, const QString& path)
 {
     if( d_fstack.size() != 1 )
         return false;
-    qDebug() << "**** writing header";
     writeHeader(out);
     writeFunction(out,d_fstack.first().data());
     out->putChar(0);
@@ -519,6 +520,14 @@ JitBytecode::Function* JitBytecode::getRoot() const
 bool JitBytecode::isStripped() const
 {
     return d_flags & BCDUMP_F_STRIP;
+}
+
+void JitBytecode::clear()
+{
+    d_funcs.clear();
+    d_fstack.clear();
+    d_name.clear();
+    d_flags = 0;
 }
 
 JitBytecode::Instruction JitBytecode::dissectInstruction(quint32 i)
@@ -815,7 +824,7 @@ static int32_t lj_num2bit(lua_Number n)
   return (int32_t)o.lo;
 }
 
-bool JitBytecode::writeNumConsts(QIODevice* out, const QVariantList& l)
+bool JitBytecode::writeNumConsts(QIODevice* out, const VariantList& l)
 {
     // adopted from LuaJIT lj_bcwrite
     for( int i = 0; i < l.size(); i++ )
@@ -901,14 +910,29 @@ static void bcwrite_ktabk(QIODevice* out, const QVariant& v, bool narrow )
     }
 }
 
-bool JitBytecode::writeObjConsts(QIODevice* out, const QVariantList& l)
+static QByteArray unescape( QByteArray str )
+{
+    str.replace("\\\\", "\\" );
+    str.replace("\\n", "\n" );
+    str.replace("\\a", "\a" );
+    str.replace("\\b", "\b" );
+    str.replace("\\f", "\f" );
+    str.replace("\\r", "\r" );
+    str.replace("\\t", "\t" );
+    str.replace("\\v", "\v" );
+    str.replace("\\\"", "\"" );
+    str.replace("\\'", "'" );
+    return str;
+}
+
+bool JitBytecode::writeObjConsts(QIODevice* out, const VariantList& l)
 {
     for( int i = 0; i < l.size(); i++ )
     {
         const QVariant& v = l[i];
-        if( v.type() == QVariant::ByteArray )
+        if( isString(v) )
         {
-            const QByteArray str = v.toByteArray();
+            const QByteArray str = unescape(v.toByteArray());
             bcwrite_uleb128(out,BCDUMP_KGC_STR + str.size() );
             out->write(str);
         }else if( v.canConvert<FuncRef>())
@@ -917,10 +941,17 @@ bool JitBytecode::writeObjConsts(QIODevice* out, const QVariantList& l)
         {
             ConstTable t = v.value<ConstTable>();
             bcwrite_uleb128(out,BCDUMP_KGC_TAB);
-            bcwrite_uleb128(out,t.d_array.size());
+            if( !t.d_array.isEmpty() )
+                bcwrite_uleb128(out,t.d_array.size()+1);
+            else
+                bcwrite_uleb128(out,0);
             bcwrite_uleb128(out,t.d_hash.size());
-            for( int i = 0; i < t.d_array.size(); i++ )
-                bcwrite_ktabk(out,t.d_array[i],true);
+            if( !t.d_array.isEmpty() )
+            {
+                bcwrite_ktabk(out,QVariant(),true); // the first element is always null
+                for( int i = 0; i < t.d_array.size(); i++ )
+                    bcwrite_ktabk(out,t.d_array[i],true);
+            }
             QHash<QVariant,QVariant>::const_iterator i;
             for( i = t.d_hash.begin(); i != t.d_hash.end(); ++i )
             {
@@ -977,8 +1008,8 @@ uint qHash(const QVariant& v, uint seed)
 QHash<QVariant, QVariant> JitBytecode::ConstTable::merged() const
 {
     QHash<QVariant,QVariant> res = d_hash;
-    for( int i = 1; i < d_array.size(); i++ ) // LJ includes index 0 with nil value in BCDUMP_KGC_TAB
-        res.insert( i, d_array[i] );
+    for( int i = 0; i < d_array.size(); i++ )
+        res.insert( i+1, d_array[i] ); // start index by 1 not 0
     return res;
 }
 

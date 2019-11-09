@@ -49,9 +49,9 @@ namespace Lua
         void closeEvent(QCloseEvent* event);
         bool checkSaved( const QString& title );
         bool compile();
+        void import(bool stripped);
 
     protected slots:
-        void onDump();
         void onRun();
         void onRun2();
         void onNew();
@@ -64,6 +64,7 @@ namespace Lua
         void onCursor();
         void onExportBc();
         void onImport();
+        void onImport2();
         void onParse();
 
     private:

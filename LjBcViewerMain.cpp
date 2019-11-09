@@ -157,6 +157,7 @@ void MainWindow::createTerminal()
     d_term = new Terminal2(dock, d_lua);
     dock->setWidget(d_term);
     addDockWidget( Qt::BottomDockWidgetArea, dock );
+    new Gui::AutoShortcut( tr("CTRL+SHIFT+C"), this, d_term, SLOT(onClear()) );
 }
 
 void MainWindow::createDumpView()
@@ -178,8 +179,8 @@ void MainWindow::createMenu()
     pop->addCommand( "Save", this, SLOT(onSave()), tr("CTRL+S"), false );
     pop->addCommand( "Save as...", this, SLOT(onSaveAs()) );
     pop->addSeparator();
-    pop->addCommand( "Execute LuaJIT", this, SLOT(onRun()), tr("CTRL+E"), false );
-    pop->addCommand( "Execute test VM", this, SLOT(onRun2()), tr("CTRL+SHIFT+E"), false );
+    pop->addCommand( "Run on LuaJIT", this, SLOT(onRun()), tr("CTRL+R"), false );
+    pop->addCommand( "Run on test VM", this, SLOT(onRun2()), tr("CTRL+SHIFT+R"), false );
     pop->addCommand( "Dump", this, SLOT(onDump()), tr("CTRL+D"), false );
     pop->addCommand( "Export binary...", this, SLOT(onExportBc()) );
     pop->addCommand( "Export assembler...", this, SLOT(onExportAsm()) );
@@ -193,7 +194,7 @@ void MainWindow::createMenu()
     pop->addSeparator();
     pop->addCommand( "Find...", d_edit, SLOT(handleFind()), tr("CTRL+F"), true );
     pop->addCommand( "Find again", d_edit, SLOT(handleFindAgain()), tr("F3"), true );
-    pop->addCommand( "Replace...", d_edit, SLOT(handleReplace()), tr("CTRL+R"), true );
+    //pop->addCommand( "Replace...", d_edit, SLOT(handleReplace()), tr("CTRL+R"), true );
     pop->addSeparator();
     pop->addCommand( "&Goto...", d_edit, SLOT(handleGoto()), tr("CTRL+G"), true );
     pop->addCommand( "Go Back", d_edit, SLOT(handleGoBack()), tr("ALT+Left"), true );
@@ -218,8 +219,8 @@ void MainWindow::createMenu()
     new Gui::AutoShortcut( tr("CTRL+N"), this, this, SLOT(onNew()) );
     new Gui::AutoShortcut( tr("CTRL+O"), this, this, SLOT(onOpen()) );
     new Gui::AutoShortcut( tr("CTRL+S"), this, this, SLOT(onSave()) );
-    new Gui::AutoShortcut( tr("CTRL+E"), this, this, SLOT(onRun()) );
-    new Gui::AutoShortcut( tr("CTRL+SHIFT+E"), this, this, SLOT(onRun2()) );
+    new Gui::AutoShortcut( tr("CTRL+R"), this, this, SLOT(onRun()) );
+    new Gui::AutoShortcut( tr("CTRL+SHIFT+R"), this, this, SLOT(onRun2()) );
     new Gui::AutoShortcut( tr("CTRL+D"), this, this, SLOT(onDump()) );
 }
 

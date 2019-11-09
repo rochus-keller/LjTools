@@ -35,7 +35,7 @@ namespace Lua
         bool loadFrom( const QString& );
         bool loadFrom( QIODevice*, const QString& path = QString() );
         void gotoLine(int);
-        bool saveTo( const QString& );
+        bool saveTo( const QString&, bool stripped = false );
     signals:
         void sigGotoLine(int lnr);
     protected slots:

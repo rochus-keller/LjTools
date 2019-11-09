@@ -72,7 +72,7 @@ Terminal2::Terminal2(QWidget* parent, Lua::Engine2* l):
     pop->addCommand( "Paste", this, SLOT(handlePaste()) );
 	pop->addSeparator();
     pop->addCommand( "Select All", this, SLOT(handleSelectAll()) );
-	pop->addCommand( "Clear", this, SLOT(handleDelete()) );
+	pop->addCommand( "Clear", this, SLOT(onClear()) );
 	pop->addSeparator();
     pop->addCommand( "Export PDF...", this, SLOT(handleExportPdf()) );
     pop->addCommand( "Save Log...", this, SLOT(handleSaveAs()) );
@@ -318,7 +318,7 @@ void Terminal2::handleSelectAll()
     ENABLED_IF( true );
 	selectAll();
 }
-void Terminal2::handleDelete()
+void Terminal2::onClear()
 {
     ENABLED_IF( true );
 	clear();

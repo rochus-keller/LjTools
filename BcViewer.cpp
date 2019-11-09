@@ -91,7 +91,7 @@ void BcViewer::gotoLine(int lnr)
     }
 }
 
-bool BcViewer::saveTo(const QString& path)
+bool BcViewer::saveTo(const QString& path, bool stripped)
 {
     QFile f(path);
     if( !f.open(QIODevice::WriteOnly) )
@@ -99,7 +99,7 @@ bool BcViewer::saveTo(const QString& path)
         qCritical() << "cannot write to" << path;
         return false;
     }
-    return Ljas::Disasm::disassemble( d_bc, &f );
+    return Ljas::Disasm::disassemble( d_bc, &f, QString(), stripped );
 }
 
 void BcViewer::onDoubleClicked(QTreeWidgetItem* i, int)

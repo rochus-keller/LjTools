@@ -51,7 +51,6 @@ const char* SynTree::rToStr( quint16 r ) {
 		case R_UGET_: return "UGET_";
 		case R_UNM_: return "UNM_";
 		case R_USET_: return "USET_";
-		case R_array: return "array";
 		case R_cname: return "cname";
 		case R_comment_: return "comment";
 		case R_const_decls: return "const_decls";

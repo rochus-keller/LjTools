@@ -21,7 +21,7 @@ QT       += core gui
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets printsupport
 
-TARGET = LjAsmViewer
+TARGET = LjAsmEditor
 TEMPLATE = app
 
 INCLUDEPATH += .. ./luajit-2.0

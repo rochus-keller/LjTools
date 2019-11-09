@@ -35,6 +35,7 @@ namespace Lua
     public:
         typedef QVector<quint32> CodeList;
         typedef QVector<quint16> UpvalList;
+        typedef QVector<QVariant> VariantList;
 
         struct ConstTable
         {
@@ -60,8 +61,8 @@ namespace Lua
             quint32 d_numline;
             CodeList d_byteCodes;
             UpvalList d_upvals;
-            QVariantList d_constObjs;
-            QVariantList d_constNums;
+            VariantList d_constObjs;
+            VariantList d_constNums;
             QVector<quint32> d_lines;
             QByteArrayList d_upNames;
             struct Var
@@ -151,6 +152,8 @@ namespace Lua
         const QList<FuncRef>& getFuncs() const { return d_funcs; }
         Function* getRoot() const;
         bool isStripped() const;
+        void clear();
+
         static Instruction dissectInstruction(quint32);
         enum Format { ABC, AD };
         static Format formatFromOp(quint8);
@@ -167,11 +170,11 @@ namespace Lua
         bool parseFunction(QIODevice* );
         bool writeFunction(QIODevice*, Function*);
         QByteArray writeDbgInfo(Function*);
-        bool writeNumConsts(QIODevice*, const QVariantList& );
-        bool writeObjConsts(QIODevice*, const QVariantList& );
+        bool writeNumConsts(QIODevice*, const VariantList& );
+        bool writeObjConsts(QIODevice*, const VariantList& );
         bool writeByteCodes(QIODevice*, const CodeList& );
         bool error( const QString& );
-        QVariantList readObjConsts( Function* f, QIODevice* in, quint32 len );
+        VariantList readObjConsts( Function* f, QIODevice* in, quint32 len );
     private:
         friend class JitComposer;
         QString d_name;

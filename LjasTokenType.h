@@ -17,8 +17,6 @@ namespace Ljas {
 		Tok_Dot,
 		Tok_Colon,
 		Tok_Eq,
-		Tok_Lbrack,
-		Tok_Rbrack,
 		Tok_Rbrack2Minus,
 		Tok_Lbrace,
 		Tok_Rbrace,

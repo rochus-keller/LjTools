@@ -38,6 +38,7 @@ namespace Lua
         virtual ~Terminal2();
     public slots:
         void printText(const QString& , bool err = false);
+        void onClear();
     private:
         Lua::Engine2* d_lua;
 		QTextCursor d_out;
@@ -55,7 +56,6 @@ namespace Lua
         void handlePaste();
         void handleCopy();
         void handleSelectAll();
-        void handleDelete();
         void handleExportPdf();
         void handleSaveAs();
 		void handlePrintStack();

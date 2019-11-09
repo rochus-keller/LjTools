@@ -122,6 +122,7 @@ AsmEditor::AsmEditor(QWidget *parent)
     connect(d_edit, SIGNAL(modificationChanged(bool)), this, SLOT(onCaption()) );
     connect(d_edit,SIGNAL(cursorPositionChanged()),this,SLOT(onCursor()));
     connect(d_eng,SIGNAL(sigPrint(QString,bool)), d_term, SLOT(printText(QString,bool)) );
+    connect(d_bcv,SIGNAL(sigGotoLine(int)),this,SLOT(onGotoLnr(int)));
 }
 
 AsmEditor::~AsmEditor()
@@ -135,9 +136,7 @@ void AsmEditor::loadFile(const QString& path)
     QDir::setCurrent(QFileInfo(path).absolutePath());
     onCaption();
 
-    // TEST
-    compile();
-
+    onParse();
 }
 
 void AsmEditor::logMessage(const QString& str, bool err)
@@ -161,6 +160,8 @@ void AsmEditor::createTerminal()
     d_term = new Terminal2(dock, d_lua);
     dock->setWidget(d_term);
     addDockWidget( Qt::BottomDockWidgetArea, dock );
+    new Gui::AutoShortcut( tr("CTRL+SHIFT+C"), this, d_term, SLOT(onClear()) );
+
 }
 
 void AsmEditor::createMenu()
@@ -168,14 +169,14 @@ void AsmEditor::createMenu()
     Gui::AutoMenu* pop = new Gui::AutoMenu( d_edit, true );
     pop->addCommand( "New", this, SLOT(onNew()), tr("CTRL+N"), false );
     pop->addCommand( "Open...", this, SLOT(onOpen()), tr("CTRL+O"), false );
-    pop->addCommand( "Import from Lua...", this, SLOT(onImport()), tr("CTRL+I"), true );
+    pop->addCommand( "Import from Lua...", this, SLOT(onImport()), tr("CTRL+I"), false );
+    pop->addCommand( "Import from Lua (stripped)...", this, SLOT(onImport2()), tr("CTRL+SHIFT+I"), false );
     pop->addCommand( "Save", this, SLOT(onSave()), tr("CTRL+S"), false );
     pop->addCommand( "Save as...", this, SLOT(onSaveAs()) );
     pop->addSeparator();
-    pop->addCommand( "Check syntax", this, SLOT(onParse()), tr("CTRL+T"), true );
-    pop->addCommand( "Execute LuaJIT", this, SLOT(onRun()), tr("CTRL+E"), false );
-    pop->addCommand( "Execute test VM", this, SLOT(onRun2()), tr("CTRL+SHIFT+E"), false );
-    pop->addCommand( "Dump", this, SLOT(onDump()), tr("CTRL+D"), false );
+    pop->addCommand( "Compile", this, SLOT(onParse()), tr("CTRL+T"), false );
+    pop->addCommand( "Run on LuaJIT", this, SLOT(onRun()), tr("CTRL+R"), false );
+    pop->addCommand( "Run on test VM", this, SLOT(onRun2()), tr("CTRL+SHIFT+R"), false );
     pop->addCommand( "Export binary...", this, SLOT(onExportBc()) );
     pop->addSeparator();
     pop->addCommand( "Undo", d_edit, SLOT(handleEditUndo()), tr("CTRL+Z"), true );
@@ -187,7 +188,7 @@ void AsmEditor::createMenu()
     pop->addSeparator();
     pop->addCommand( "Find...", d_edit, SLOT(handleFind()), tr("CTRL+F"), true );
     pop->addCommand( "Find again", d_edit, SLOT(handleFindAgain()), tr("F3"), true );
-    pop->addCommand( "Replace...", d_edit, SLOT(handleReplace()), tr("CTRL+R"), true );
+    //pop->addCommand( "Replace...", d_edit, SLOT(handleReplace()) );
     pop->addSeparator();
     pop->addCommand( "&Goto...", d_edit, SLOT(handleGoto()), tr("CTRL+G"), true );
     pop->addCommand( "Go Back", d_edit, SLOT(handleGoBack()), tr("ALT+Left"), true );
@@ -212,9 +213,11 @@ void AsmEditor::createMenu()
     new Gui::AutoShortcut( tr("CTRL+N"), this, this, SLOT(onNew()) );
     new Gui::AutoShortcut( tr("CTRL+O"), this, this, SLOT(onOpen()) );
     new Gui::AutoShortcut( tr("CTRL+S"), this, this, SLOT(onSave()) );
-    new Gui::AutoShortcut( tr("CTRL+E"), this, this, SLOT(onRun()) );
-    new Gui::AutoShortcut( tr("CTRL+SHIFT+E"), this, this, SLOT(onRun2()) );
-    new Gui::AutoShortcut( tr("CTRL+D"), this, this, SLOT(onDump()) );
+    new Gui::AutoShortcut( tr("CTRL+R"), this, this, SLOT(onRun()) );
+    new Gui::AutoShortcut( tr("CTRL+SHIFT+R"), this, this, SLOT(onRun2()) );
+    new Gui::AutoShortcut( tr("CTRL+T"), this, this, SLOT(onParse()) );
+    new Gui::AutoShortcut( tr("CTRL+I"), this, this, SLOT(onImport()) );
+    new Gui::AutoShortcut( tr("CTRL+SHIFT+I"), this, this, SLOT(onImport2()) );
 }
 
 void AsmEditor::createDumpView()
@@ -226,22 +229,6 @@ void AsmEditor::createDumpView()
     d_bcv = new BcViewer(dock);
     dock->setWidget(d_bcv);
     addDockWidget( Qt::RightDockWidgetArea, dock );
-}
-
-void AsmEditor::onDump()
-{
-    ENABLED_IF(true);
-
-    if( compile() )
-    {
-        QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
-        const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
-        QFile out(path);
-        out.open(QIODevice::WriteOnly);
-        out.write(d_bc);
-        d_bcv->loadFrom(path);
-        dir.remove(path);
-    }
 }
 
 void AsmEditor::onRun()
@@ -289,6 +276,7 @@ void AsmEditor::onOpen()
     QDir::setCurrent(QFileInfo(fileName).absolutePath());
 
     d_edit->loadFromFile(fileName);
+    onParse();
     onCaption();
 }
 
@@ -366,64 +354,43 @@ void AsmEditor::onCursor()
     d_lock = true;
     QTextCursor cur = d_edit->textCursor();
     const int line = cur.blockNumber() + 1;
+    d_bcv->gotoLine(line);
     d_lock = false;
 }
 
 void AsmEditor::onExportBc()
 {
     ENABLED_IF(true);
+    if( !compile() )
+        return;
     QString fileName = QFileDialog::getSaveFileName(this, tr("Save Binary"),
                                                           d_edit->getPath(),
-                                                          tr("*.bc") );
+                                                          tr("*.ljbc") );
 
     if (fileName.isEmpty())
         return;
 
     QDir::setCurrent(QFileInfo(fileName).absolutePath());
 
-    if( !fileName.endsWith(".bc",Qt::CaseInsensitive ) )
-        fileName += ".bc";
-    d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),fileName.toUtf8());
+    if( !fileName.endsWith(".ljbc",Qt::CaseInsensitive ) )
+        fileName += ".ljbc";
+    QFile out( fileName );
+    out.open(QIODevice::WriteOnly);
+    out.write(d_bc);
 }
 
 void AsmEditor::onImport()
 {
     ENABLED_IF(true);
 
-    if( !checkSaved( tr("New File")) )
-        return;
+    import(false);
+}
 
-    d_edit->newFile();
-    onCaption();
+void AsmEditor::onImport2()
+{
+    ENABLED_IF(true);
 
-    const QString fileName = QFileDialog::getOpenFileName(this, tr("Import Lua"), d_edit->getPath(), tr("*.lua") );
-    if (fileName.isEmpty())
-        return;
-
-    QDir::setCurrent(QFileInfo(fileName).absolutePath());
-
-    QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
-    const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
-    QFile in(fileName);
-    if( !in.open(QIODevice::ReadOnly) )
-    {
-        QMessageBox::critical(this,tr("Import from Lua"), tr("cannot open file for reading") );
-        return;
-    }
-    if( !d_lua->saveBinary( in.readAll(), fileName.toUtf8(),path.toUtf8() ) )
-    {
-        QMessageBox::critical(this,tr("Import from Lua"), tr("selected file has errors") );
-        return;
-    }
-    Lua::JitBytecode bc;
-    bc.parse(path);
-    dir.remove(path);
-
-    QBuffer buf;
-    buf.open(QIODevice::WriteOnly);
-    Ljas::Disasm::disassemble( bc, &buf, fileName );
-    buf.close();
-    d_edit->setPlainText(buf.buffer());
+    import(true);
 }
 
 void AsmEditor::onParse()
@@ -433,9 +400,15 @@ void AsmEditor::onParse()
     QString name = d_edit->getPath();
     if( name.isEmpty() )
         name = tr("<unnamed>");
-    qDebug() << "Checking syntax of" << name;
+    qDebug() << "compiling" << name;
     if( compile() )
+    {
         qDebug() << "No errors found";
+        QBuffer buf( &d_bc );
+        buf.open(QIODevice::ReadOnly);
+        d_bcv->loadFrom(&buf,d_edit->getPath());
+    }else
+        d_bcv->clear();
 }
 
 bool AsmEditor::checkSaved(const QString& title)
@@ -490,13 +463,52 @@ bool AsmEditor::compile()
         return false;
 }
 
+void AsmEditor::import(bool stripped)
+{
+    if( !checkSaved( tr("New File")) )
+        return;
+
+    d_edit->newFile();
+    onCaption();
+
+    const QString fileName = QFileDialog::getOpenFileName(this, tr("Import Lua"), d_edit->getPath(), tr("*.lua *.ljbc") );
+    if (fileName.isEmpty())
+        return;
+
+    QDir::setCurrent(QFileInfo(fileName).absolutePath());
+
+    QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
+    const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
+    QFile in(fileName);
+    if( !in.open(QIODevice::ReadOnly) )
+    {
+        QMessageBox::critical(this,tr("Import from Lua"), tr("cannot open file for reading") );
+        return;
+    }
+    if( !d_lua->saveBinary( in.readAll(), fileName.toUtf8(),path.toUtf8() ) )
+    {
+        QMessageBox::critical(this,tr("Import from Lua"), tr("selected file has errors") );
+        return;
+    }
+    Lua::JitBytecode bc;
+    bc.parse(path);
+    dir.remove(path);
+
+    QBuffer buf;
+    buf.open(QIODevice::WriteOnly);
+    Ljas::Disasm::disassemble( bc, &buf, fileName, stripped );
+    buf.close();
+    d_edit->setPlainText(buf.buffer());
+    onParse();
+}
+
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
-    a.setApplicationName("LjAsmViewer");
-    a.setApplicationVersion("0.1");
+    a.setApplicationName("LjAsmEditor");
+    a.setApplicationVersion("0.3");
     a.setStyle("Fusion");
 
     Lua::AsmEditor w;

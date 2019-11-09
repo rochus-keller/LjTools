@@ -12,8 +12,6 @@ namespace Ljas {
 			case Tok_Dot: return ".";
 			case Tok_Colon: return ":";
 			case Tok_Eq: return "=";
-			case Tok_Lbrack: return "[";
-			case Tok_Rbrack: return "]";
 			case Tok_Rbrack2Minus: return "]--";
 			case Tok_Lbrace: return "{";
 			case Tok_Rbrace: return "}";
@@ -85,8 +83,6 @@ namespace Ljas {
 			case Tok_Dot: return "Tok_Dot";
 			case Tok_Colon: return "Tok_Colon";
 			case Tok_Eq: return "Tok_Eq";
-			case Tok_Lbrack: return "Tok_Lbrack";
-			case Tok_Rbrack: return "Tok_Rbrack";
 			case Tok_Rbrack2Minus: return "Tok_Rbrack2Minus";
 			case Tok_Lbrace: return "Tok_Lbrace";
 			case Tok_Rbrace: return "Tok_Rbrace";
@@ -461,16 +457,11 @@ namespace Ljas {
 				break;
 			}
 			break;
-		case '[':
-			res = Tok_Lbrack; i += 1;
-			break;
 		case ']':
 			if( at(str,i+1) == '-' ){
 				if( at(str,i+2) == '-' ){
 					res = Tok_Rbrack2Minus; i += 3;
 				}
-			} else {
-				res = Tok_Rbrack; i += 1;
 			}
 			break;
 		case 'b':

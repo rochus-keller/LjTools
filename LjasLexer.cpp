@@ -415,9 +415,11 @@ Token Lexer::string()
     {
         const char c = lookAhead(off);
         off++;
-        if( c == '"' )
+        if( c == '\\' && lookAhead(off) == '"' )
+            off++;
+        else if( c == '"' )
             break;
-        if( c == 0 )
+        else if( c == 0 )
             return token( Tok_Invalid, off, "non-terminated string" );
     }
     const QByteArray str = d_line.mid(d_colNr, off );

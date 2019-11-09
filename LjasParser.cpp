@@ -373,7 +373,7 @@ void Parser::statement() {
 			JMP_();
 			break;
 		}
-		default: SynErr(73,__FUNCTION__); break;
+		default: SynErr(71,__FUNCTION__); break;
 		}
 		d_stack.pop(); 
 }
@@ -395,9 +395,6 @@ void Parser::vname() {
 void Parser::var_decl() {
 		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_var_decl, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
 		vname();
-		if (la->kind == _T_Lbrack) {
-			array();
-		}
 		d_stack.pop(); 
 }
 
@@ -410,17 +407,6 @@ void Parser::record() {
 			vname();
 		}
 		Expect(_T_Rbrace,__FUNCTION__);
-		addTerminal(); 
-		d_stack.pop(); 
-}
-
-void Parser::array() {
-		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_array, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
-		Expect(_T_Lbrack,__FUNCTION__);
-		addTerminal(); 
-		Expect(_T_posint,__FUNCTION__);
-		addTerminal(); 
-		Expect(_T_Rbrack,__FUNCTION__);
 		addTerminal(); 
 		d_stack.pop(); 
 }
@@ -443,7 +429,7 @@ void Parser::const_val() {
 			primitive();
 		} else if (la->kind == _T_Lbrace) {
 			table_literal();
-		} else SynErr(74,__FUNCTION__);
+		} else SynErr(72,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -454,7 +440,7 @@ void Parser::number() {
 			addTerminal(); 
 		} else if (la->kind == _T_posint || la->kind == _T_negint) {
 			integer();
-		} else SynErr(75,__FUNCTION__);
+		} else SynErr(73,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -469,7 +455,7 @@ void Parser::primitive() {
 		} else if (la->kind == _T_false) {
 			Get();
 			addTerminal(); 
-		} else SynErr(76,__FUNCTION__);
+		} else SynErr(74,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -490,7 +476,7 @@ void Parser::table_literal() {
 				number();
 			} else if (la->kind == _T_false || la->kind == _T_nil || la->kind == _T_true) {
 				primitive();
-			} else SynErr(77,__FUNCTION__);
+			} else SynErr(75,__FUNCTION__);
 		}
 		Expect(_T_Rbrace,__FUNCTION__);
 		addTerminal(); 
@@ -505,25 +491,6 @@ void Parser::desig() {
 			addTerminal(); 
 		}
 		vname();
-		if (la->kind == _T_Lbrack) {
-			Get();
-			addTerminal(); 
-			integer();
-			Expect(_T_Rbrack,__FUNCTION__);
-			addTerminal(); 
-		}
-		d_stack.pop(); 
-}
-
-void Parser::integer() {
-		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_integer, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
-		if (la->kind == _T_negint) {
-			Get();
-			addTerminal(); 
-		} else if (la->kind == _T_posint) {
-			Get();
-			addTerminal(); 
-		} else SynErr(78,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -577,7 +544,7 @@ void Parser::ISEQ_() {
 			number();
 		} else if (la->kind == _T_false || la->kind == _T_nil || la->kind == _T_true) {
 			primitive();
-		} else SynErr(79,__FUNCTION__);
+		} else SynErr(76,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -595,7 +562,7 @@ void Parser::ISNE_() {
 			number();
 		} else if (la->kind == _T_false || la->kind == _T_nil || la->kind == _T_true) {
 			primitive();
-		} else SynErr(80,__FUNCTION__);
+		} else SynErr(77,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -678,12 +645,12 @@ void Parser::ADD_() {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(81,__FUNCTION__);
+		} else SynErr(78,__FUNCTION__);
 		if (la->kind == _T_ident) {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(82,__FUNCTION__);
+		} else SynErr(79,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -696,12 +663,12 @@ void Parser::SUB_() {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(83,__FUNCTION__);
+		} else SynErr(80,__FUNCTION__);
 		if (la->kind == _T_ident) {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(84,__FUNCTION__);
+		} else SynErr(81,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -714,12 +681,12 @@ void Parser::MUL_() {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(85,__FUNCTION__);
+		} else SynErr(82,__FUNCTION__);
 		if (la->kind == _T_ident) {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(86,__FUNCTION__);
+		} else SynErr(83,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -732,12 +699,12 @@ void Parser::DIV_() {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(87,__FUNCTION__);
+		} else SynErr(84,__FUNCTION__);
 		if (la->kind == _T_ident) {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(88,__FUNCTION__);
+		} else SynErr(85,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -750,12 +717,12 @@ void Parser::MOD_() {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(89,__FUNCTION__);
+		} else SynErr(86,__FUNCTION__);
 		if (la->kind == _T_ident) {
 			desig();
 		} else if (la->kind == _T_real || la->kind == _T_posint || la->kind == _T_negint) {
 			number();
-		} else SynErr(90,__FUNCTION__);
+		} else SynErr(87,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -796,7 +763,7 @@ void Parser::KSET_() {
 			primitive();
 		} else if (la->kind == _T_ident) {
 			cname();
-		} else SynErr(91,__FUNCTION__);
+		} else SynErr(88,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -835,7 +802,7 @@ void Parser::USET_() {
 			primitive();
 		} else if (la->kind == _T_ident) {
 			desig();
-		} else SynErr(92,__FUNCTION__);
+		} else SynErr(89,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -884,7 +851,7 @@ void Parser::TDUP_() {
 			cname();
 		} else if (la->kind == _T_Lbrace) {
 			table_literal();
-		} else SynErr(93,__FUNCTION__);
+		} else SynErr(90,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -898,7 +865,7 @@ void Parser::GGET_() {
 			addTerminal(); 
 		} else if (la->kind == _T_ident) {
 			cname();
-		} else SynErr(94,__FUNCTION__);
+		} else SynErr(91,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -912,7 +879,7 @@ void Parser::GSET_() {
 			addTerminal(); 
 		} else if (la->kind == _T_ident) {
 			cname();
-		} else SynErr(95,__FUNCTION__);
+		} else SynErr(92,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -930,7 +897,7 @@ void Parser::TGET_() {
 		} else if (la->kind == _T_posint) {
 			Get();
 			addTerminal(); 
-		} else SynErr(96,__FUNCTION__);
+		} else SynErr(93,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -948,7 +915,7 @@ void Parser::TSET_() {
 		} else if (la->kind == _T_posint) {
 			Get();
 			addTerminal(); 
-		} else SynErr(97,__FUNCTION__);
+		} else SynErr(94,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -1024,6 +991,18 @@ void Parser::JMP_() {
 		Expect(_T_JMP,__FUNCTION__);
 		addTerminal(); 
 		label();
+		d_stack.pop(); 
+}
+
+void Parser::integer() {
+		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_integer, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
+		if (la->kind == _T_negint) {
+			Get();
+			addTerminal(); 
+		} else if (la->kind == _T_posint) {
+			Get();
+			addTerminal(); 
+		} else SynErr(95,__FUNCTION__);
 		d_stack.pop(); 
 }
 
@@ -1127,7 +1106,7 @@ void Parser::Parse() {
 }
 
 Parser::Parser(PARSER_NS::Lexer *scanner, PARSER_NS::Errors* err) {
-	maxT = 72;
+	maxT = 70;
 
 	ParserInitCaller<Parser>::CallInit(this);
 	la = &d_dummy;
@@ -1141,10 +1120,10 @@ bool Parser::StartOf(int s) {
 	const bool T = true;
 	const bool x = false;
 
-	static bool set[3][74] = {
-		{T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x},
-		{x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,x, x,x,x,x, x,x,x,x, T,x,x,x, x,x,x,x, x,x},
-		{x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,T,x, T,T,x,x, T,T,T,T, T,x,x,x, x,x}
+	static bool set[3][72] = {
+		{T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x},
+		{x,x,x,x, x,x,x,x, x,x,x,x, x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,x,x,x, x,x,x,x, x,x,T,x, x,x,x,x, x,x,x,x},
+		{x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,x,T,T, x,x,T,T, T,T,T,x, x,x,x,x}
 	};
 
 
@@ -1178,95 +1157,93 @@ void Parser::SynErr(const QString& sourcePath, int line, int col, int n, PARSER_
 			case 6: s = coco_string_create(L"T_Dot expected"); break;
 			case 7: s = coco_string_create(L"T_Colon expected"); break;
 			case 8: s = coco_string_create(L"T_Eq expected"); break;
-			case 9: s = coco_string_create(L"T_Lbrack expected"); break;
-			case 10: s = coco_string_create(L"T_Rbrack expected"); break;
-			case 11: s = coco_string_create(L"T_Rbrack2Minus expected"); break;
-			case 12: s = coco_string_create(L"T_Lbrace expected"); break;
-			case 13: s = coco_string_create(L"T_Rbrace expected"); break;
-			case 14: s = coco_string_create(L"T_Keywords_ expected"); break;
-			case 15: s = coco_string_create(L"T_ADD expected"); break;
-			case 16: s = coco_string_create(L"T_CALL expected"); break;
-			case 17: s = coco_string_create(L"T_CALLT expected"); break;
-			case 18: s = coco_string_create(L"T_CAT expected"); break;
-			case 19: s = coco_string_create(L"T_DIV expected"); break;
-			case 20: s = coco_string_create(L"T_FNEW expected"); break;
-			case 21: s = coco_string_create(L"T_FORI expected"); break;
-			case 22: s = coco_string_create(L"T_FORL expected"); break;
-			case 23: s = coco_string_create(L"T_GGET expected"); break;
-			case 24: s = coco_string_create(L"T_GSET expected"); break;
-			case 25: s = coco_string_create(L"T_ISEQ expected"); break;
-			case 26: s = coco_string_create(L"T_ISF expected"); break;
-			case 27: s = coco_string_create(L"T_ISFC expected"); break;
-			case 28: s = coco_string_create(L"T_ISGE expected"); break;
-			case 29: s = coco_string_create(L"T_ISGT expected"); break;
-			case 30: s = coco_string_create(L"T_ISLE expected"); break;
-			case 31: s = coco_string_create(L"T_ISLT expected"); break;
-			case 32: s = coco_string_create(L"T_ISNE expected"); break;
-			case 33: s = coco_string_create(L"T_IST expected"); break;
-			case 34: s = coco_string_create(L"T_ISTC expected"); break;
-			case 35: s = coco_string_create(L"T_JMP expected"); break;
-			case 36: s = coco_string_create(L"T_KNIL expected"); break;
-			case 37: s = coco_string_create(L"T_KSET expected"); break;
-			case 38: s = coco_string_create(L"T_LEN expected"); break;
-			case 39: s = coco_string_create(L"T_LOOP expected"); break;
-			case 40: s = coco_string_create(L"T_MOD expected"); break;
-			case 41: s = coco_string_create(L"T_MOV expected"); break;
-			case 42: s = coco_string_create(L"T_MUL expected"); break;
-			case 43: s = coco_string_create(L"T_NOT expected"); break;
-			case 44: s = coco_string_create(L"T_POW expected"); break;
-			case 45: s = coco_string_create(L"T_RET expected"); break;
-			case 46: s = coco_string_create(L"T_SUB expected"); break;
-			case 47: s = coco_string_create(L"T_TDUP expected"); break;
-			case 48: s = coco_string_create(L"T_TGET expected"); break;
-			case 49: s = coco_string_create(L"T_TNEW expected"); break;
-			case 50: s = coco_string_create(L"T_TSET expected"); break;
-			case 51: s = coco_string_create(L"T_UCLO expected"); break;
-			case 52: s = coco_string_create(L"T_UGET expected"); break;
-			case 53: s = coco_string_create(L"T_UNM expected"); break;
-			case 54: s = coco_string_create(L"T_USET expected"); break;
-			case 55: s = coco_string_create(L"T_begin expected"); break;
-			case 56: s = coco_string_create(L"T_const expected"); break;
-			case 57: s = coco_string_create(L"T_end expected"); break;
-			case 58: s = coco_string_create(L"T_false expected"); break;
-			case 59: s = coco_string_create(L"T_function expected"); break;
-			case 60: s = coco_string_create(L"T_nil expected"); break;
-			case 61: s = coco_string_create(L"T_true expected"); break;
-			case 62: s = coco_string_create(L"T_var expected"); break;
-			case 63: s = coco_string_create(L"T_Specials_ expected"); break;
-			case 64: s = coco_string_create(L"T_ident expected"); break;
-			case 65: s = coco_string_create(L"T_string expected"); break;
-			case 66: s = coco_string_create(L"T_real expected"); break;
-			case 67: s = coco_string_create(L"T_posint expected"); break;
-			case 68: s = coco_string_create(L"T_negint expected"); break;
-			case 69: s = coco_string_create(L"T_Comment expected"); break;
-			case 70: s = coco_string_create(L"T_Eof expected"); break;
-			case 71: s = coco_string_create(L"T_MaxToken_ expected"); break;
-			case 72: s = coco_string_create(L"??? expected"); break;
-			case 73: s = coco_string_create(L"invalid statement"); break;
-			case 74: s = coco_string_create(L"invalid const_val"); break;
-			case 75: s = coco_string_create(L"invalid number"); break;
-			case 76: s = coco_string_create(L"invalid primitive"); break;
-			case 77: s = coco_string_create(L"invalid table_literal"); break;
-			case 78: s = coco_string_create(L"invalid integer"); break;
-			case 79: s = coco_string_create(L"invalid ISEQ_"); break;
-			case 80: s = coco_string_create(L"invalid ISNE_"); break;
-			case 81: s = coco_string_create(L"invalid ADD_"); break;
-			case 82: s = coco_string_create(L"invalid ADD_"); break;
-			case 83: s = coco_string_create(L"invalid SUB_"); break;
-			case 84: s = coco_string_create(L"invalid SUB_"); break;
-			case 85: s = coco_string_create(L"invalid MUL_"); break;
-			case 86: s = coco_string_create(L"invalid MUL_"); break;
-			case 87: s = coco_string_create(L"invalid DIV_"); break;
-			case 88: s = coco_string_create(L"invalid DIV_"); break;
-			case 89: s = coco_string_create(L"invalid MOD_"); break;
-			case 90: s = coco_string_create(L"invalid MOD_"); break;
-			case 91: s = coco_string_create(L"invalid KSET_"); break;
-			case 92: s = coco_string_create(L"invalid USET_"); break;
-			case 93: s = coco_string_create(L"invalid TDUP_"); break;
-			case 94: s = coco_string_create(L"invalid GGET_"); break;
-			case 95: s = coco_string_create(L"invalid GSET_"); break;
-			case 96: s = coco_string_create(L"invalid TGET_"); break;
-			case 97: s = coco_string_create(L"invalid TSET_"); break;
+			case 9: s = coco_string_create(L"T_Rbrack2Minus expected"); break;
+			case 10: s = coco_string_create(L"T_Lbrace expected"); break;
+			case 11: s = coco_string_create(L"T_Rbrace expected"); break;
+			case 12: s = coco_string_create(L"T_Keywords_ expected"); break;
+			case 13: s = coco_string_create(L"T_ADD expected"); break;
+			case 14: s = coco_string_create(L"T_CALL expected"); break;
+			case 15: s = coco_string_create(L"T_CALLT expected"); break;
+			case 16: s = coco_string_create(L"T_CAT expected"); break;
+			case 17: s = coco_string_create(L"T_DIV expected"); break;
+			case 18: s = coco_string_create(L"T_FNEW expected"); break;
+			case 19: s = coco_string_create(L"T_FORI expected"); break;
+			case 20: s = coco_string_create(L"T_FORL expected"); break;
+			case 21: s = coco_string_create(L"T_GGET expected"); break;
+			case 22: s = coco_string_create(L"T_GSET expected"); break;
+			case 23: s = coco_string_create(L"T_ISEQ expected"); break;
+			case 24: s = coco_string_create(L"T_ISF expected"); break;
+			case 25: s = coco_string_create(L"T_ISFC expected"); break;
+			case 26: s = coco_string_create(L"T_ISGE expected"); break;
+			case 27: s = coco_string_create(L"T_ISGT expected"); break;
+			case 28: s = coco_string_create(L"T_ISLE expected"); break;
+			case 29: s = coco_string_create(L"T_ISLT expected"); break;
+			case 30: s = coco_string_create(L"T_ISNE expected"); break;
+			case 31: s = coco_string_create(L"T_IST expected"); break;
+			case 32: s = coco_string_create(L"T_ISTC expected"); break;
+			case 33: s = coco_string_create(L"T_JMP expected"); break;
+			case 34: s = coco_string_create(L"T_KNIL expected"); break;
+			case 35: s = coco_string_create(L"T_KSET expected"); break;
+			case 36: s = coco_string_create(L"T_LEN expected"); break;
+			case 37: s = coco_string_create(L"T_LOOP expected"); break;
+			case 38: s = coco_string_create(L"T_MOD expected"); break;
+			case 39: s = coco_string_create(L"T_MOV expected"); break;
+			case 40: s = coco_string_create(L"T_MUL expected"); break;
+			case 41: s = coco_string_create(L"T_NOT expected"); break;
+			case 42: s = coco_string_create(L"T_POW expected"); break;
+			case 43: s = coco_string_create(L"T_RET expected"); break;
+			case 44: s = coco_string_create(L"T_SUB expected"); break;
+			case 45: s = coco_string_create(L"T_TDUP expected"); break;
+			case 46: s = coco_string_create(L"T_TGET expected"); break;
+			case 47: s = coco_string_create(L"T_TNEW expected"); break;
+			case 48: s = coco_string_create(L"T_TSET expected"); break;
+			case 49: s = coco_string_create(L"T_UCLO expected"); break;
+			case 50: s = coco_string_create(L"T_UGET expected"); break;
+			case 51: s = coco_string_create(L"T_UNM expected"); break;
+			case 52: s = coco_string_create(L"T_USET expected"); break;
+			case 53: s = coco_string_create(L"T_begin expected"); break;
+			case 54: s = coco_string_create(L"T_const expected"); break;
+			case 55: s = coco_string_create(L"T_end expected"); break;
+			case 56: s = coco_string_create(L"T_false expected"); break;
+			case 57: s = coco_string_create(L"T_function expected"); break;
+			case 58: s = coco_string_create(L"T_nil expected"); break;
+			case 59: s = coco_string_create(L"T_true expected"); break;
+			case 60: s = coco_string_create(L"T_var expected"); break;
+			case 61: s = coco_string_create(L"T_Specials_ expected"); break;
+			case 62: s = coco_string_create(L"T_ident expected"); break;
+			case 63: s = coco_string_create(L"T_string expected"); break;
+			case 64: s = coco_string_create(L"T_real expected"); break;
+			case 65: s = coco_string_create(L"T_posint expected"); break;
+			case 66: s = coco_string_create(L"T_negint expected"); break;
+			case 67: s = coco_string_create(L"T_Comment expected"); break;
+			case 68: s = coco_string_create(L"T_Eof expected"); break;
+			case 69: s = coco_string_create(L"T_MaxToken_ expected"); break;
+			case 70: s = coco_string_create(L"??? expected"); break;
+			case 71: s = coco_string_create(L"invalid statement"); break;
+			case 72: s = coco_string_create(L"invalid const_val"); break;
+			case 73: s = coco_string_create(L"invalid number"); break;
+			case 74: s = coco_string_create(L"invalid primitive"); break;
+			case 75: s = coco_string_create(L"invalid table_literal"); break;
+			case 76: s = coco_string_create(L"invalid ISEQ_"); break;
+			case 77: s = coco_string_create(L"invalid ISNE_"); break;
+			case 78: s = coco_string_create(L"invalid ADD_"); break;
+			case 79: s = coco_string_create(L"invalid ADD_"); break;
+			case 80: s = coco_string_create(L"invalid SUB_"); break;
+			case 81: s = coco_string_create(L"invalid SUB_"); break;
+			case 82: s = coco_string_create(L"invalid MUL_"); break;
+			case 83: s = coco_string_create(L"invalid MUL_"); break;
+			case 84: s = coco_string_create(L"invalid DIV_"); break;
+			case 85: s = coco_string_create(L"invalid DIV_"); break;
+			case 86: s = coco_string_create(L"invalid MOD_"); break;
+			case 87: s = coco_string_create(L"invalid MOD_"); break;
+			case 88: s = coco_string_create(L"invalid KSET_"); break;
+			case 89: s = coco_string_create(L"invalid USET_"); break;
+			case 90: s = coco_string_create(L"invalid TDUP_"); break;
+			case 91: s = coco_string_create(L"invalid GGET_"); break;
+			case 92: s = coco_string_create(L"invalid GSET_"); break;
+			case 93: s = coco_string_create(L"invalid TGET_"); break;
+			case 94: s = coco_string_create(L"invalid TSET_"); break;
+			case 95: s = coco_string_create(L"invalid integer"); break;
 
 		default:
 		{
