@@ -131,9 +131,7 @@ void MainWindow::loadFile(const QString& path)
     QDir::setCurrent(QFileInfo(path).absolutePath());
     onCaption();
 
-    // TEST
-    onDump();
-    //d_bcv->saveTo(path + ".ljasm");
+    compile();
 }
 
 void MainWindow::logMessage(const QString& str, bool err)
@@ -227,11 +225,7 @@ void MainWindow::createMenu()
 void MainWindow::onDump()
 {
     ENABLED_IF(true);
-    QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
-    const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
-    d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),path.toUtf8());
-    d_bcv->loadFrom(path);
-    dir.remove(path);
+    compile();
 }
 
 void MainWindow::onRun()
@@ -280,6 +274,7 @@ void MainWindow::onOpen()
     QDir::setCurrent(QFileInfo(fileName).absolutePath());
 
     d_edit->loadFromFile(fileName);
+    compile();
     onCaption();
 }
 
@@ -430,13 +425,22 @@ bool MainWindow::checkSaved(const QString& title)
     return true;
 }
 
+void MainWindow::compile()
+{
+    QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
+    const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
+    d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),path.toUtf8());
+    d_bcv->loadFrom(path);
+    dir.remove(path);
+}
+
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjBcViewer");
-    a.setApplicationVersion("0.5.0");
+    a.setApplicationVersion("0.5.1");
     a.setStyle("Fusion");
 
     Lua::MainWindow w;

@@ -48,6 +48,7 @@ namespace Lua
         void createMenu();
         void closeEvent(QCloseEvent* event);
         bool checkSaved( const QString& title );
+        void compile();
 
     protected slots:
         void onDump();
