@@ -51,7 +51,7 @@ HEADERS  += LjBcViewerMain.h \
     LjDisasm.h \
     StreamSpy.h
 
-include( ../LuaJit/LuaJit.pri ){
+include( /home/me/Desktop/LuaJIT-2.0.5/src/LuaJit.pri ){
     LIBS += -ldl
 } else {
     LIBS += -lluajit
