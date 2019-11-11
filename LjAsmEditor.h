@@ -22,7 +22,7 @@
 
 #include <QMainWindow>
 
-class CodeEditor;
+class QTreeWidget;
 
 namespace Lua
 {
@@ -46,6 +46,7 @@ namespace Lua
         void createTerminal();
         void createMenu();
         void createDumpView();
+        void createXref();
         void closeEvent(QCloseEvent* event);
         bool checkSaved( const QString& title );
         bool compile();
@@ -66,12 +67,15 @@ namespace Lua
         void onImport();
         void onImport2();
         void onParse();
+        void onUsedByDblClicked();
 
     private:
-        CodeEditor* d_edit;
+        class Editor;
+        Editor* d_edit;
         Engine2* d_lua;
         Terminal2* d_term;
         BcViewer* d_bcv;
+        QTreeWidget* d_usedBy;
         JitEngine* d_eng;
         QByteArray d_bc;
         bool d_lock;

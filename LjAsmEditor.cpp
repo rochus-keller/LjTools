@@ -72,6 +72,168 @@ void messageHander(QtMsgType type, const QMessageLogContext& ctx, const QString&
     report(type,message);
 }
 
+class AsmEditor::Editor : public CodeEditor
+{
+public:
+    Editor(QWidget* p):CodeEditor(p),d_xref(0)
+    {
+        d_err.setReportToConsole(true);
+        d_err.setRecord(true);
+    }
+    ~Editor()
+    {
+        if( d_xref )
+            delete d_xref;
+    }
+    Ljas::Assembler::Xref* d_xref;
+    Ljas::Errors d_err;
+    Ljas::Highlighter* d_hl;
+
+    typedef QList<const Ljas::Assembler::Xref*> SymList;
+
+    void markNonTerms(const SymList& syms)
+    {
+        d_nonTerms.clear();
+        QTextCharFormat format;
+        format.setBackground( QColor(247,245,243) );
+        foreach( const Ljas::Assembler::Xref* s, syms )
+        {
+            if( s == 0 )
+                continue;
+            QTextCursor c( document()->findBlockByNumber( s->d_line - 1) );
+            c.setPosition( c.position() + s->d_col - 1 );
+            c.setPosition( c.position() + s->d_name.size(), QTextCursor::KeepAnchor );
+
+            QTextEdit::ExtraSelection sel;
+            sel.format = format;
+            sel.cursor = c;
+
+            d_nonTerms << sel;
+        }
+        updateExtraSelections();
+    }
+
+    void updateExtraSelections()
+    {
+        ESL sum;
+
+        QTextEdit::ExtraSelection line;
+        line.format.setBackground(QColor(Qt::yellow).lighter(170));
+        line.format.setProperty(QTextFormat::FullWidthSelection, true);
+        line.cursor = textCursor();
+        line.cursor.clearSelection();
+        sum << line;
+
+        sum << d_nonTerms;
+
+        if( false ) // does not work yet !d_err.getErrors().isEmpty() )
+        {
+            QTextCharFormat errorFormat;
+            errorFormat.setUnderlineStyle(QTextCharFormat::WaveUnderline);
+            errorFormat.setUnderlineColor(Qt::magenta);
+            Ljas::Errors::EntryList::const_iterator i;
+            for( i = d_err.getErrors(getPath()).begin(); i != d_err.getErrors(getPath()).end(); ++i )
+            {
+                QTextCursor c( document()->findBlockByNumber((*i).d_line - 1) );
+
+                c.setPosition( c.position() + (*i).d_col - 1 );
+                c.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
+
+                QTextEdit::ExtraSelection sel;
+                sel.format = errorFormat;
+                sel.cursor = c;
+                sel.format.setToolTip((*i).d_msg);
+
+                sum << sel;
+            }
+        }
+
+        sum << d_link;
+
+        setExtraSelections(sum);
+    }
+    const Ljas::Assembler::Xref* findSymbolBySourcePos(const Ljas::Assembler::Xref* node, quint32 line, quint16 col ) const
+    {
+        if( node == 0 )
+            return 0;
+        if( node->d_line > line )
+            return 0;
+        if( line == node->d_line && col >= node->d_col && col <= node->d_col + node->d_name.size() )
+            return node;
+        // else
+        foreach( const Ljas::Assembler::Xref* n, node->d_subs )
+        {
+            const Ljas::Assembler::Xref* res = findSymbolBySourcePos( n, line, col );
+            if( res )
+                return res;
+        }
+        return 0;
+    }
+    void mousePressEvent(QMouseEvent* e)
+    {
+        if( !d_link.isEmpty() )
+        {
+            QTextCursor cur = cursorForPosition(e->pos());
+            pushLocation( Location( cur.blockNumber(), cur.positionInBlock() ) );
+            QApplication::restoreOverrideCursor();
+            d_link.clear();
+            setCursorPosition( d_linkLineNr, d_linkColNr, true );
+        }else if( QApplication::keyboardModifiers() == Qt::ControlModifier )
+        {
+            QTextCursor cur = cursorForPosition(e->pos());
+            const Ljas::Assembler::Xref* sym = findSymbolBySourcePos(d_xref,cur.blockNumber() + 1,cur.positionInBlock() + 1);
+            if( sym )
+            {
+                const Ljas::Assembler::Xref* d = sym->d_decl;
+                if( d )
+                {
+                    pushLocation( Location( cur.blockNumber(), cur.positionInBlock() ) );
+                    setCursorPosition( d->d_line - 1, d->d_col - 1, true );
+                }
+           }
+        }else
+            QPlainTextEdit::mousePressEvent(e);
+    }
+
+    void mouseMoveEvent(QMouseEvent* e)
+    {
+        QPlainTextEdit::mouseMoveEvent(e);
+        if( QApplication::keyboardModifiers() == Qt::ControlModifier && d_xref )
+        {
+            QTextCursor cur = cursorForPosition(e->pos());
+            const Ljas::Assembler::Xref* sym = findSymbolBySourcePos(d_xref,cur.blockNumber() + 1, cur.positionInBlock() + 1);
+            const bool alreadyArrow = !d_link.isEmpty();
+            d_link.clear();
+            if( sym )
+            {
+                const int off = cur.positionInBlock() + 1 - sym->d_col;
+                cur.setPosition(cur.position() - off);
+                cur.setPosition( cur.position() + sym->d_name.size(), QTextCursor::KeepAnchor );
+                const Ljas::Assembler::Xref* d = sym->d_decl;
+                if( d )
+                {
+                    QTextEdit::ExtraSelection sel;
+                    sel.cursor = cur;
+                    sel.format.setFontUnderline(true);
+                    d_link << sel;
+                    d_linkLineNr = d->d_line - 1;
+                    d_linkColNr = d->d_col - 1;
+                    if( !alreadyArrow )
+                        QApplication::setOverrideCursor(Qt::ArrowCursor);
+                }
+            }
+            if( alreadyArrow && d_link.isEmpty() )
+                QApplication::restoreOverrideCursor();
+            updateExtraSelections();
+        }else if( !d_link.isEmpty() )
+        {
+            QApplication::restoreOverrideCursor();
+            d_link.clear();
+            updateExtraSelections();
+        }
+    }
+};
+
 AsmEditor::AsmEditor(QWidget *parent)
     : QMainWindow(parent),d_lock(false)
 {
@@ -89,8 +251,8 @@ AsmEditor::AsmEditor(QWidget *parent)
 
     d_eng = new JitEngine(this);
 
-    d_edit = new CodeEditor(this);
-    new Ljas::Highlighter( d_edit->document() );
+    d_edit = new Editor(this);
+    d_edit->d_hl = new Ljas::Highlighter( d_edit->document() );
     d_edit->updateTabWidth();
 
     setDockNestingEnabled(true);
@@ -102,6 +264,7 @@ AsmEditor::AsmEditor(QWidget *parent)
     createTerminal();
     createMenu();
     createDumpView();
+    createXref();
 
     setCentralWidget(d_edit);
 
@@ -231,6 +394,21 @@ void AsmEditor::createDumpView()
     addDockWidget( Qt::RightDockWidgetArea, dock );
 }
 
+void AsmEditor::createXref()
+{
+    QDockWidget* dock = new QDockWidget( tr("Xref"), this );
+    dock->setObjectName("Xref");
+    dock->setAllowedAreas( Qt::AllDockWidgetAreas );
+    dock->setFeatures( QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable );
+    d_usedBy = new QTreeWidget(dock);
+    d_usedBy->setAlternatingRowColors(true);
+    d_usedBy->setHeaderHidden(true);
+    d_usedBy->setAllColumnsShowFocus(true);
+    d_usedBy->setRootIsDecorated(false);
+    dock->setWidget(d_usedBy);
+    addDockWidget( Qt::RightDockWidgetArea, dock );
+    connect(d_usedBy, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)), this, SLOT(onUsedByDblClicked()) );
+}
 void AsmEditor::onRun()
 {
     ENABLED_IF(true);
@@ -351,9 +529,35 @@ void AsmEditor::onCursor()
 {
     if( d_lock )
         return;
+    int line, col;
+    d_edit->getCursorPosition( &line, &col );
+    line += 1;
+    col += 1;
+    const Ljas::Assembler::Xref* sym = d_edit->findSymbolBySourcePos(d_edit->d_xref, line, col);
+    if( sym && sym->d_decl )
+        sym = sym->d_decl;
+    if( sym )
+    {
+        Editor::SymList l = sym->d_usedBy;
+        l.prepend( sym );
+        d_edit->markNonTerms(l);
+
+        d_usedBy->clear();
+        foreach( const Ljas::Assembler::Xref* n, l )
+        {
+            QTreeWidgetItem* i = new QTreeWidgetItem(d_usedBy);
+            i->setText( 0, QString("%1 (%2 %3 %4:%5)").arg(n->d_name.constData())
+                        .arg(Ljas::Assembler::Xref::s_kind[n->d_kind])
+                        .arg(Ljas::Assembler::Xref::s_role[n->d_role])
+                        .arg(n->d_line).arg(n->d_col));
+            i->setToolTip( 0, i->text(0) );
+            i->setData( 0, Qt::UserRole, QPoint( n->d_col, n->d_line ) );
+        }
+    }
+
     d_lock = true;
-    QTextCursor cur = d_edit->textCursor();
-    const int line = cur.blockNumber() + 1;
+//    QTextCursor cur = d_edit->textCursor();
+//    const int line = cur.blockNumber() + 1;
     d_bcv->gotoLine(line);
     d_lock = false;
 }
@@ -411,6 +615,20 @@ void AsmEditor::onParse()
         d_bcv->clear();
 }
 
+void AsmEditor::onUsedByDblClicked()
+{
+    QTreeWidgetItem* item = d_usedBy->currentItem();
+    if( item )
+    {
+        const bool blocked = d_edit->blockSignals(true);
+        const QPoint p = item->data(0,Qt::UserRole).toPoint();
+        d_edit->setCursorPosition( p.y() - 1, p.x() - 1, true );
+        d_edit->blockSignals(blocked);
+        onCursor();
+        d_edit->setFocus();
+    }
+}
+
 bool AsmEditor::checkSaved(const QString& title)
 {
     if( d_edit->isModified() )
@@ -441,21 +659,28 @@ bool AsmEditor::checkSaved(const QString& title)
 
 bool AsmEditor::compile()
 {
-    Ljas::Errors err;
-    err.setReportToConsole(true);
+    d_edit->d_err.clear();
+    if( d_edit->d_xref )
+        delete d_edit->d_xref;
+    d_edit->d_xref = 0;
+
     Ljas::Lexer lex;
-    lex.setErrors(&err);
+    lex.setErrors(&d_edit->d_err);
     QByteArray code = d_edit->toPlainText().toUtf8();
     QBuffer buf(&code);
     buf.open(QIODevice::ReadOnly);
     lex.setStream(&buf,d_edit->getPath());
-    Ljas::Parser p(&lex,&err);
+    Ljas::Parser p(&lex,&d_edit->d_err);
     p.Parse();
-    if( err.getErrCount() != 0 )
+    if( d_edit->d_err.getErrCount() != 0 )
         return false;
 
-    Ljas::Assembler ass(&err);
-    if( ass.process( p.d_root.d_children.first(), d_edit->getPath().toUtf8() ) )
+    Ljas::Assembler ass(&d_edit->d_err);
+    const bool res = ass.process( p.d_root.d_children.first(), d_edit->getPath().toUtf8(), true );
+    d_edit->d_xref = ass.getXref(true);
+    d_edit->updateExtraSelections();
+    d_edit->d_hl->rehighlight();
+    if( res )
     {
         d_bc = ass.getBc();
         return true;
@@ -508,7 +733,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjAsmEditor");
-    a.setApplicationVersion("0.3");
+    a.setApplicationVersion("0.4");
     a.setStyle("Fusion");
 
     Lua::AsmEditor w;

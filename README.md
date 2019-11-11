@@ -4,13 +4,14 @@ The goal of this project (work in progress) is to better understand how LuaJIT w
 
 The viewer can be used to edit and compile Lua source code and display it side by side with its corresponding LuaJIT bytecode. The test VM implements a subset of LuaJIT bytecodes to study and validate their functions (see the examples subfolder).
 
-Here is a screenshot:
+Here is a Lua BcViewer screenshot:
 ![LjBcViewer Screenshot](http://software.rochus-keller.info/LjBcViewer_screenshot_1.png)
 
 
-The assembler can be used to directly program and test with LuaJIT bytecode. The syntax is defined in LjAsm.ebnf; here is a PDF of the syntax: http://software.rochus-keller.info/LjAsm_Syntax.pdf. It slightly abstracts from original LuaJIT bytecode and supports automatic register allocation. Documentation of the syntax is TBD; varargs and for loops are not yet supported (because most likely not used by the new front ends).
+The assembler can be used to directly program and test with LuaJIT bytecode. The syntax is defined in LjAsm.ebnf; here is a PDF: http://software.rochus-keller.info/LjAsm_Syntax.pdf. It slightly abstracts from original LuaJIT bytecode and supports automatic register allocation. Documentation of the syntax is TBD; varargs and for loops are not yet supported (because most likely not used by the new front ends).
+The editor supports semantic highlighting and navigation (CTRL+Click on ident), and shows a list of cross-references when an ident is selected.
 
-Here is a screenshot:
+Here is an Asm Editor screenshot:
 ![LjAsmEditor Screenshot](http://software.rochus-keller.info/LjAsmEditor_screenshot_1.png)
 
 ### Build Steps

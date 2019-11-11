@@ -49,9 +49,6 @@ namespace Lua
 		void addStdLibs();
         void setPrintToStdout(bool on) { d_printToStdout = on; }
 		void setPluginPath( const char*, bool cpath = false);
-		// LUA_PATH, LUA_CPATH, package.loadlib, package.path und package.cpath sind unwirksam.
-		// setPluginPath() setzt registry.plugindir, Lua-Code hat darauf keinen Zugriff.
-		// Mit package.plugindir() und package.dir(module) kann man Pfade abfragen.
 		QByteArray getPluginPath(bool cpath = false) const;
 
         typedef QSet<quint32> Breaks; // Zeile, zero-based

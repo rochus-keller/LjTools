@@ -28,9 +28,11 @@ using namespace Lua;
 
 #define LJ_MAX_SLOTS	250
 
-Q_DECLARE_METATYPE( Ljas::Assembler::Named* )
+Q_DECLARE_METATYPE( Assembler::Named* )
+Q_DECLARE_METATYPE( SynTree* )
 
 // TODO: array vars
+
 
 struct Interval
 {
@@ -119,18 +121,28 @@ static bool allocateWithLinearScan(QBitArray& pool, Intervals& vars, int len )
     return true;
 }
 
-Assembler::Assembler(Errors* errs):d_errs(errs)
+Assembler::Assembler(Errors* errs):d_errs(errs),d_xref(0)
 {
     Q_ASSERT( errs != 0 );
 }
 
-bool Assembler::process(SynTree* st, const QByteArray& sourceRef)
+Assembler::~Assembler()
+{
+    if( d_xref )
+        delete d_xref;
+}
+
+bool Assembler::process(SynTree* st, const QByteArray& sourceRef, bool createXref)
 {
     Q_ASSERT( st != 0 && st->d_tok.d_type == SynTree::R_function_decl && st->d_children.size() >= 3 );
 
     d_comp.clear();
     d_ref = sourceRef;
     d_top = Func();
+    if( d_xref )
+        delete d_xref;
+    d_xref = 0;
+    d_createXref = createXref;
 
     QElapsedTimer t;
     t.start();
@@ -146,6 +158,14 @@ bool Assembler::process(SynTree* st, const QByteArray& sourceRef)
         return true;
     }else
         return false;
+}
+
+Assembler::Xref*Assembler::getXref(bool transferOwnership)
+{
+    Xref* res = d_xref;
+    if( transferOwnership )
+        d_xref = 0;
+    return res;
 }
 
 bool Assembler::checkSlotOrder( const Var* v, int n )
@@ -232,6 +252,11 @@ void Assembler::resolveOverlaps(const Assembler::VarList& l)
     }
 }
 
+static bool xrefSort( const Assembler::Xref* lhs, const Assembler::Xref* rhs )
+{
+    return lhs->d_line < rhs->d_line || (!(rhs->d_line < lhs->d_line) && lhs->d_col < rhs->d_col);
+}
+
 bool Assembler::processFunc(SynTree* st, Func* outer)
 {
     Q_ASSERT( st != 0 && st->d_tok.d_type == SynTree::R_function_decl );
@@ -239,13 +264,16 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
     SynTree* fname = flatten(findFirstChild(st, SynTree::R_fname ));
     if( fname == 0 && outer != 0 )
         return error( st, tr("only top-level function can be unnamed") );
-    if( fname != 0 && outer )
+    SynTree* lastName = 0;
+    if( fname != 0 )
     {
-        if( outer->d_names.contains(fname->d_tok.d_val) )
+        if( outer && outer->d_names.contains(fname->d_tok.d_val) )
             return error( fname, tr("function name not unique") );
-        SynTree* last = flatten(st->d_children.last());
-        if( last->d_tok.d_type != Tok_ident || last->d_tok.d_val != fname->d_tok.d_val )
-            return error( last, tr("expected function name after 'end'") );
+        lastName = flatten(st->d_children.last());
+        if( lastName == 0 || lastName->d_tok.d_type != Tok_ident )
+            return error( lastName, tr("expected function name after 'end'") );
+        if( lastName->d_tok.d_val != fname->d_tok.d_val )
+            return error( lastName, tr("name after 'end' not equal to function name") );
     }
 
     Func* me = new Func();
@@ -259,6 +287,23 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
         outer->d_names.insert(QByteArray(),me);
     else
         d_top.d_names.insert(QByteArray(),me);
+
+    if( d_createXref )
+    {
+        Xref* x = new Xref();
+        me->d_xref = x;
+        x->d_name = me->d_name;
+        x->d_kind = Xref::Func;
+        x->d_role = Xref::Decl;
+        x->d_line = fname->d_tok.d_lineNr;
+        x->d_col = fname->d_tok.d_colNr;
+        if( outer )
+        {
+            Q_ASSERT( outer->d_xref );
+            outer->d_xref->d_subs.append(x);
+        }else
+            d_xref = x;
+    }
 
     SynTree* hdr = findFirstChild(st, SynTree::R_function_header );
     Q_ASSERT( hdr != 0 );
@@ -305,7 +350,20 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
                 if( labels.contains(name->d_tok.d_val) )
                     return error(name,tr("duplicate label"));
                 else
-                    labels.insert(name->d_tok.d_val,stmts.size() );
+                {
+                    Xref* x = 0;
+                    if( d_createXref )
+                    {
+                        x = new Xref();
+                        x->d_name = name->d_tok.d_val;
+                        x->d_kind = Xref::Label;
+                        x->d_role = Xref::Decl;
+                        x->d_line = name->d_tok.d_lineNr;
+                        x->d_col = name->d_tok.d_colNr;
+                        me->d_xref->d_subs.append(x);
+                    }
+                    labels.insert(name->d_tok.d_val,qMakePair(stmts.size(),x) );
+                }
                 i++;
             }
             if( body->d_children[i]->d_tok.d_type == SynTree::R_statement )
@@ -317,7 +375,7 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
             }
         }
 
-        if( !checkJumpsAndMore( stmts, labels ) )
+        if( !checkJumpsAndMore( stmts, labels, me ) )
             return false;
 
     }else
@@ -343,6 +401,26 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
         return false;
 
     d_comp.closeFunction(me->d_firstUnused.d_slot);
+
+    if( d_createXref )
+    {
+        if( lastName && lastName->d_tok.d_type == Tok_ident )
+        {
+            Xref* x = new Xref();
+            x->d_name = me->d_name;
+            x->d_kind = Xref::Func;
+            x->d_role = Xref::Ref;
+            x->d_line = lastName->d_tok.d_lineNr;
+            x->d_col = lastName->d_tok.d_colNr;
+            x->d_decl = me->d_xref;
+            me->d_xref->d_usedBy.append(x);
+            me->d_xref->d_subs.append(x);
+        }
+
+        Xref* func = outer ? outer->d_xref->d_subs.last() : d_xref;
+        std::sort( func->d_subs.begin(), func->d_subs.end(), xrefSort );
+    }
+
     return true;
 }
 
@@ -362,6 +440,7 @@ bool Assembler::processParams(SynTree* hdr, Assembler::Func* me )
         me->d_names.insert( s->d_name, s );
         s->d_func = me;
         me->d_params.append( s );
+        createDeclXref(s,p,me);
     }
     return true;
 }
@@ -383,6 +462,7 @@ bool Assembler::processConsts(SynTree* hdr, Assembler::Func* me)
         Const* cc = new Const();
         cc->d_name = name->d_tok.d_val;
         me->d_names.insert( cc->d_name, cc );
+        createDeclXref(cc,name,me);
         if( !processConst( val, cc, true ) )
             return false;
     }
@@ -446,7 +526,8 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
         {
             SynTree* d = v->d_children[i];
             Q_ASSERT( !d->d_children.isEmpty() && d->d_children.first()->d_tok.d_type == SynTree::R_vname );
-            const QByteArray name = flatten(d->d_children.first())->d_tok.d_val;
+            SynTree* nameSt = flatten(d->d_children.first());
+            const QByteArray name = nameSt->d_tok.d_val;
             if( me->d_names.contains(name) )
                 return error( d, tr("variable name not unique") );
 #ifdef _SUPPORT_ARRAYS_
@@ -475,6 +556,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                     prev = vv;
                     a->d_elems.append(vv);
                     vv->d_func = me;
+                    createDeclXref(vv,nameSt,me);
                 }
             }else
 #endif
@@ -483,7 +565,8 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                 vv->d_name = name;
                 me->d_names.insert( name, vv );
                 vv->d_func = me;
-            }
+                createDeclXref(vv,nameSt,me);
+           }
         }else if( v->d_children[i]->d_tok.d_type == SynTree::R_record )
         {
             SynTree* r = v->d_children[i];
@@ -506,6 +589,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                 prev = vv;
                 vv->d_func = me;
                 me->d_names.insert( vv->d_name, vv );
+                createDeclXref(vv,name,me);
             }
         }else
             Q_ASSERT( false );
@@ -595,7 +679,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         Q_ASSERT( st->d_children.size() == 3 );
         if( !fetchV( st->d_children[1], s, me ) )
             return false;
-        if( !fetchV( st->d_children[2], s, me ) )
+        if( !fetchV( st->d_children[2], s, me, 1, false ) )
             return false;
         break;
     case SynTree::R_IST_:
@@ -611,9 +695,9 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         Q_ASSERT( st->d_children.size() == 4 );
         if( !fetchV( st->d_children[1], s, me ) )
             return false;
-        if( !fetchV( st->d_children[2], s, me ) )
+        if( !fetchV( st->d_children[2], s, me, 1, false ) )
             return false;
-        if( !fetchV( st->d_children[3], s, me ) )
+        if( !fetchV( st->d_children[3], s, me, 1, false ) )
             return false;
         break;
     case SynTree::R_ISEQ_:
@@ -766,7 +850,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                     return error( st->d_children[3], tr("expecting integer greater than zero "));
             }else
             {
-                Var* v = toVar( derefDesig(st->d_children[2],me) ); // only local var
+                Var* v = toVar( derefDesig(st->d_children[2],me).first ); // only local var
                 while( v )
                 {
                     n++;
@@ -774,7 +858,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                 }
                 s.d_vals << n;
             }
-            if( !fetchV( st->d_children[2], s, me, n ) )
+            if( !fetchV( st->d_children[2], s, me, n, false ) )
                 return false;
             // reorder
             Q_ASSERT( s.d_vals.size() == 3 );
@@ -796,7 +880,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                     return error( st->d_children[2], tr("expecting integer greater than zero "));
             }else
             {
-                Var* v = toVar( derefDesig(st->d_children[1],me) ); // only local var
+                Var* v = toVar( derefDesig(st->d_children[1],me).first ); // only local var
                 while( v )
                 {
                     n++;
@@ -814,7 +898,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         break;
     case SynTree::R_USET_:
         Q_ASSERT( st->d_children.size() == 3 );
-        if( !fetchU( st->d_children[1], s, me ) )
+        if( !fetchU( st->d_children[1], s, me, true ) )
             return false;
         if( !fetchVcsnp(st->d_children[2], s, me) )
             return false;
@@ -835,7 +919,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         Q_ASSERT( st->d_children.size() == 3 );
         if( !fetchV( st->d_children[1], s, me ) )
             return false;
-        if( !fetchU( st->d_children[2], s, me ) )
+        if( !fetchU( st->d_children[2], s, me, false ) )
             return false;
         break;
     case SynTree::R_UCLO_:
@@ -844,11 +928,9 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         if( !fetchV( st->d_children[1], s, me ) )
             return false;
         if( st->d_children.size() == 3 )
-        {
-            SynTree* lbl = flatten(st->d_children[2]);
-            s.d_vals << lbl->d_tok.d_val;
-        }else
-            s.d_vals << quint16(0);
+            s.d_vals << QVariant::fromValue( flatten(st->d_children[2]) );
+        else
+            s.d_vals << QVariant();
         break;
     case SynTree::R_FNEW_:
         s.d_op = JitBytecode::OP_FNEW;
@@ -928,7 +1010,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         Q_ASSERT( st->d_children.size() == 4 );
         if( !fetchV( st->d_children[1], s, me ) )
             return false;
-        if( !fetchV( st->d_children[2], s, me ) )
+        if( !fetchV( st->d_children[2], s, me, 1, false ) )
             return false;
         if( !fetchVcsnp(st->d_children[3], s, me) )
             return false;
@@ -1022,7 +1104,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         Q_ASSERT( st->d_children.size() == 3 );
         if( !fetchV( st->d_children[1], s, me, 4 ) )
             return false;
-        s.d_vals << flatten(st->d_children[2])->d_tok.d_val;
+        s.d_vals << QVariant::fromValue( flatten(st->d_children[2]) );
         qWarning() << "generated bytecode FORI/FORL doesn't work with LuaJIT yet";
         break;
     case SynTree::R_JMP_:
@@ -1031,7 +1113,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             s.d_op = JitBytecode::OP_JMP;
             Q_ASSERT( st->d_children.size() == 2 );
             s.d_vals << QVariant::fromValue( n );
-            s.d_vals << flatten(st->d_children[1])->d_tok.d_val;
+            s.d_vals << QVariant::fromValue( flatten(st->d_children[1]) );
             // TODO: check that JMP jumps to a LOOP, but not always
         }
         break;
@@ -1044,16 +1126,17 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
     return true;
 }
 
-bool Assembler::fetchV(SynTree* st, Assembler::Stmt& s, Assembler::Func* me, int count )
+bool Assembler::fetchV(SynTree* st, Assembler::Stmt& s, Assembler::Func* me, int count , bool lhs)
 {
     Q_ASSERT( count > 0 ); // number of consecutive variables required
 
     const int origCount = count;
 
-    Named* n = derefDesig(st,me); // only local vars
-    if( n == 0 )
+    NameSym ns = derefDesig(st,me); // only local vars
+    if( ns.first == 0 )
         return false;
-    Var* v = n->toVar();
+    createUseXref(ns.first,ns.second, me,count,lhs);
+    Var* v = ns.first->toVar();
     if( v == 0 )
         return error(st,tr("argument doesn't designate a variable"));
     if( v->d_n < count )
@@ -1066,21 +1149,24 @@ bool Assembler::fetchV(SynTree* st, Assembler::Stmt& s, Assembler::Func* me, int
         v = v->d_next;
         count--;
     }
-    s.d_vals << QVariant::fromValue(n);
+    s.d_vals << QVariant::fromValue(ns.first);
     return true;
 }
 
-bool Assembler::fetchU(SynTree* st, Assembler::Stmt& s, Assembler::Func* me)
+bool Assembler::fetchU(SynTree* st, Assembler::Stmt& s, Assembler::Func* me, bool lhs)
 {
-    Named* n = derefDesig(st,me->d_outer, false); // only upvalue vars
-    if( n == 0 )
+    NameSym ns = derefDesig(st,me->d_outer, false); // only upvalue vars
+    if( ns.first == 0 )
         return false;
-    Var* v = n->toVar();
+    Var* v = ns.first->toVar();
     if( v == 0 )
         return error(st,tr("argument doesn't designate a variable"));
+    createUseXref(ns.first,ns.second,me,1,lhs);
     me->resolveUpval(v);
     v->d_uv = true;
-    s.d_vals << QVariant::fromValue(n);
+    if( lhs )
+        v->d_uvRo = false;
+    s.d_vals << QVariant::fromValue(ns.first);
     return true;
 }
 
@@ -1147,19 +1233,20 @@ bool Assembler::fetchP(SynTree* st, Assembler::Stmt& s)
 
 bool Assembler::fetchVc(SynTree* st, Assembler::Stmt& s, Assembler::Func* me)
 {
-    Named* n = derefDesig(st,me); // onlyLocalVars is true
-    if( n == 0 )
+    NameSym ns = derefDesig(st,me); // onlyLocalVars is true
+    if( ns.first == 0 )
         return false;
-    if( Const* c = n->toConst() )
+    createUseXref(ns.first,ns.second,me,1,false);
+    if( Const* c = ns.first->toConst() )
     {
         s.d_vals << c->d_val;
         return true;
     }
-    Var* v = n->toVar();
+    Var* v = ns.first->toVar();
     if( v == 0 )
         return error(st,tr("argument doesn't designate a variable"));
     s.registerRange(v);
-    s.d_vals << QVariant::fromValue(n);
+    s.d_vals << QVariant::fromValue(ns.first);
     return true;
 }
 
@@ -1170,6 +1257,7 @@ bool Assembler::fetchC(SynTree* st, Assembler::Stmt& s, Assembler::Func* me)
     Named* n = me->findAll(st->d_tok.d_val);
     if( n == 0 )
         return error(st,tr("unknown const"));
+    createUseXref(n,st,me,1,false);
     if( Const* c = n->toConst() )
     {
         s.d_vals << c->d_val;
@@ -1185,6 +1273,7 @@ bool Assembler::fetchF(SynTree* st, Assembler::Stmt& s, Assembler::Func* me)
     Named* n = me->findLocal(st->d_tok.d_val);
     if( n == 0 )
         return error(st,tr("unknown function"));
+    createUseXref(n,st,me,1,false);
     if( n->isFunc() )
     {
         s.d_vals << QVariant::fromValue(n);
@@ -1249,7 +1338,7 @@ bool Assembler::fetchVcn(SynTree* st, Assembler::Stmt& s, Assembler::Func* me)
     return false;
 }
 
-bool Assembler::checkJumpsAndMore(Assembler::Stmts& stmts, const Assembler::Labels& lbls)
+bool Assembler::checkJumpsAndMore(Assembler::Stmts& stmts, const Assembler::Labels& lbls, Func* f)
 {
     for( int pc = 0; pc < stmts.size(); pc++ )
     {
@@ -1265,15 +1354,29 @@ bool Assembler::checkJumpsAndMore(Assembler::Stmts& stmts, const Assembler::Labe
         case JitBytecode::OP_JMP:
             {
                 Q_ASSERT( !s.d_vals.isEmpty() );
-                if( s.d_vals.last().type() != QVariant::ByteArray )
+                if( !s.d_vals.last().canConvert<SynTree*>() )
                 {
                     Q_ASSERT( s.d_op == JitBytecode::OP_UCLO );
                     continue;
                 }
-                Labels::const_iterator i = lbls.find(s.d_vals.back().toByteArray());
+                SynTree* name = s.d_vals.last().value<SynTree*>();
+                Labels::const_iterator i = lbls.find(name->d_tok.d_val);
                 if( i == lbls.end() )
                     return error(s.d_st,tr("label not defined") );
-                s.d_vals.back() = quint16( i.value() - ( pc + 1 ) + JitBytecode::Instruction::JumpBias );
+                s.d_vals.back() = quint16( i.value().first - ( pc + 1 ) + JitBytecode::Instruction::JumpBias );
+                if( i.value().second )
+                {
+                    Xref* x = new Xref();
+                    x->d_name = i.key();
+                    x->d_kind = Xref::Label;
+                    x->d_role = Xref::Ref;
+                    x->d_line = name->d_tok.d_lineNr;
+                    x->d_col = name->d_tok.d_colNr;
+                    x->d_decl = i.value().second;
+                    i.value().second->d_usedBy.append(x);
+                    Q_ASSERT( f->d_xref != 0 );
+                    f->d_xref->d_subs.append(x);
+                }
             }
             break;
         }
@@ -1391,7 +1494,6 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
     //printPool(pool,all.size());
 
     // resolve overlaps
-#if 1
     foreach( Var* h, headers )
     {
         if( h->d_n == 0 )
@@ -1419,62 +1521,6 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         }
 #endif
     }
-
-#else
-    if( !overlaps.isEmpty() )
-    {
-        QSet<Var*>::const_iterator i;
-        for( i = overlaps.begin(); i != overlaps.end(); ++i )
-        {
-            Var* v = (*i);
-            int off = 0;
-            Var* h = v;
-            while( h )
-            {
-                h = h->d_prev;
-                off++;
-                if( h && h->d_n > 1 )
-                    break;
-            }
-            if( h )
-            {
-                // h0 h1 h2 h3
-                //          v0 v1 v2
-                // off = 3, rem = 2
-                // h0 h1 h2 h3
-                //    v0 v1 v2
-                // off = 1, rem = 0
-                h->d_n += qMax( off + v->d_n - h->d_n, 0 );
-                v->d_n = 0; // so no further overlap correction occurs
-                headers.removeAll(v);
-            }else
-            {
-                // v is the top array which is overlapped with succeeding arrays but has no overarching array
-                off = 0;
-                h = v;
-                while( h )
-                {
-                    h = h->d_next;
-                    off++;
-                    if( h && h->d_n > 1 )
-                        break;
-                }
-                if( h == 0 || off + 1 > v->d_n )
-                    Q_ASSERT( false );
-                else
-                {
-                    // v0 v1
-                    //    h0 h1 h2 off = 1
-                    // v0 v1 v2 v3
-                    //    h0 h1 off=1
-                    v->d_n += qMax( off + h->d_n - v->d_n, 0 );
-                    h->d_n = 0; // so no further overlap correction occurs
-                    headers.removeAll(h);
-                }
-            }
-        }
-    }
-#endif
 
     QMap<quint8,VarList> headersByN;
     foreach( Var* h, headers )
@@ -1695,6 +1741,48 @@ bool Assembler::generateCode(Func* f, const Stmts& stmts)
     return true;
 }
 
+void Assembler::createUseXref(Assembler::Named* n, SynTree* st, Assembler::Func* f, int count, bool lhs)
+{
+    if( d_createXref )
+    {
+        while( n != 0 && count-- > 0 )
+        {
+            Xref* x = new Xref();
+            x->d_name = n->d_name;
+            x->d_role = lhs ? Xref::Lhs : Xref::Rhs;
+            x->d_kind = n->isConst() ? Xref::Const : ( n->isVar() ? Xref::Var : Xref::Func );
+            x->d_line = st->d_tok.d_lineNr;
+            x->d_col = st->d_tok.d_colNr;
+            Q_ASSERT( n->d_xref != 0 );
+            x->d_decl = n->d_xref;
+            n->d_xref->d_usedBy.append(x);
+            Q_ASSERT( f->d_xref != 0 );
+            f->d_xref->d_subs.append(x);
+            Var* v = n->toVar();
+            if( v )
+                n = v->d_next;
+            else
+                n = 0;
+        }
+    }
+}
+
+void Assembler::createDeclXref(Assembler::Named* n, SynTree* st, Assembler::Func* f)
+{
+    if( d_createXref )
+    {
+        Xref* x = new Xref();
+        n->d_xref = x;
+        x->d_name = n->d_name;
+        x->d_role = Xref::Decl;
+        x->d_kind = n->isConst() ? Xref::Const : ( n->isVar() ? Xref::Var : Xref::Func );
+        x->d_line = st->d_tok.d_lineNr;
+        x->d_col = st->d_tok.d_colNr;
+        Q_ASSERT( f->d_xref != 0 );
+        f->d_xref->d_subs.append(x);
+    }
+}
+
 int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t, const QVariant& v)
 {
     switch( t )
@@ -1777,7 +1865,7 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
     return -1;
 }
 
-Assembler::Named* Assembler::derefDesig(SynTree* st, Assembler::Func* me, bool onlyLocalVars)
+Assembler::NameSym Assembler::derefDesig(SynTree* st, Assembler::Func* me, bool onlyLocalVars)
 {
     Q_ASSERT( st != 0 && st->d_tok.d_type == SynTree::R_desig && !st->d_children.isEmpty() );
 
@@ -1799,25 +1887,26 @@ Assembler::Named* Assembler::derefDesig(SynTree* st, Assembler::Func* me, bool o
         if( func == 0 )
         {
             error(name,tr("name doesn't designate a function"));
-            return 0;
+            return NameSym();
         }
         vnameIdx = 2;
     }
 
     Q_ASSERT( st->d_children[vnameIdx]->d_tok.d_type == SynTree::R_vname );
     bool isLocal;
-    sym = func->findAll( flatten( st->d_children[vnameIdx])->d_tok.d_val, &isLocal );
+    SynTree* symName = flatten( st->d_children[vnameIdx]);
+    sym = func->findAll( symName->d_tok.d_val, &isLocal );
 
     if( sym == 0 )
     {
         error(st->d_children[vnameIdx],tr("name is not defined"));
-        return 0;
+        return NameSym();
     }
 
     if( sym->isVar() && onlyLocalVars &&  !isLocal )
     {
         error( st->d_children[vnameIdx],tr("cannot use non-local variables here"));
-        return 0;
+        return NameSym();
     }
 
 #ifdef _SUPPORT_ARRAYS_
@@ -1865,7 +1954,7 @@ Assembler::Named* Assembler::derefDesig(SynTree* st, Assembler::Func* me, bool o
         }
     }
 #endif
-    return sym;
+    return NameSym(sym,symName);
 }
 
 SynTree*Assembler::findFirstChild(const SynTree* st, int type, int startWith)
@@ -1956,6 +2045,8 @@ JitComposer::UpvalList Assembler::Func::getUpvals() const
         Q_ASSERT( d_outer );
         JitComposer::Upval u;
         u.d_name = i.key()->d_name;
+        if( i.key()->d_uvRo )
+            u.d_isRo = true;
         if( i.key()->d_func == d_outer )
         {
             u.d_uv = i.key()->d_slot;
@@ -2028,4 +2119,25 @@ QPair<int, int> Assembler::Var::bounds() const
         v = v->d_next;
     }
     return qMakePair(from,to);
+}
+
+const char* Assembler::Xref::s_kind[] =
+{
+    "Func","Var","Const","Label"
+};
+
+const char* Assembler::Xref::s_role[] =
+{
+    "Decl","Lhs","Rhs","Ref"
+};
+
+Assembler::Xref::Xref():d_line(0),d_col(0),d_kind(0),d_role(0),d_decl(0)
+{
+
+}
+
+Assembler::Xref::~Xref()
+{
+    foreach( Xref* sub, d_subs )
+        delete sub;
 }
