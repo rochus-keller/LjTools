@@ -389,6 +389,9 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
         stmts << s;
     }
 
+    me->d_firstUnused.d_from = 0;
+    me->d_firstUnused.d_to = stmts.size();
+
     if( !allocateRegisters3(me) )
         return false;
 
@@ -524,12 +527,13 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
     {
         if( v->d_children[i]->d_tok.d_type == SynTree::R_var_decl )
         {
-            SynTree* d = v->d_children[i];
-            Q_ASSERT( !d->d_children.isEmpty() && d->d_children.first()->d_tok.d_type == SynTree::R_vname );
-            SynTree* nameSt = flatten(d->d_children.first());
+            Q_ASSERT( v->d_children[i]->d_children.size() == 1 );
+            SynTree* nwp = v->d_children[i]->d_children.first();
+            Q_ASSERT( nwp->d_tok.d_type == SynTree::R_nameWithPreset && !nwp->d_children.isEmpty() );
+            SynTree* nameSt = flatten(nwp->d_children.first());
             const QByteArray name = nameSt->d_tok.d_val;
             if( me->d_names.contains(name) )
-                return error( d, tr("variable name not unique") );
+                return error( nameSt, tr("variable name not unique") );
 #ifdef _SUPPORT_ARRAYS_
             if( d->d_children.size() == 2 )
             {
@@ -566,6 +570,16 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                 me->d_names.insert( name, vv );
                 vv->d_func = me;
                 createDeclXref(vv,nameSt,me);
+                if( nwp->d_children.size() > 1 )
+                {
+                    Q_ASSERT( nwp->d_children.size() == 4 && nwp->d_children[1]->d_tok.d_type == Tok_Lpar &&
+                            nwp->d_children[2]->d_tok.d_type == Tok_posint && nwp->d_children[3]->d_tok.d_type == Tok_Rpar );
+                    const int slot = nwp->d_children[2]->d_tok.d_val.toUInt();
+                    if( slot > LJ_MAX_SLOTS )
+                        return error( nwp->d_children[2], tr("preset slot out of range") );
+                    vv->d_slotPreset = true;
+                    vv->d_slot = slot;
+                }
            }
         }else if( v->d_children[i]->d_tok.d_type == SynTree::R_record )
         {
@@ -575,7 +589,10 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
             Var* prev = 0;
             for( int j = 1; j < r->d_children.size() - 1; j++ )
             {
-                SynTree* name = flatten(r->d_children[j]);
+                Q_ASSERT( r->d_children[j]->d_tok.d_type == SynTree::R_nameWithPreset &&
+                          !r->d_children[j]->d_children.isEmpty() );
+                SynTree* nwp = r->d_children[j];
+                SynTree* name = flatten(nwp->d_children.first());
                 Q_ASSERT( name->d_tok.d_type == Tok_ident );
                 if( me->d_names.contains(name->d_tok.d_val) )
                     return error( name, tr("variable name not unique") );
@@ -589,6 +606,16 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                 prev = vv;
                 vv->d_func = me;
                 me->d_names.insert( vv->d_name, vv );
+                if( nwp->d_children.size() > 1 )
+                {
+                    Q_ASSERT( nwp->d_children.size() == 4 && nwp->d_children[1]->d_tok.d_type == Tok_Lpar &&
+                            nwp->d_children[2]->d_tok.d_type == Tok_posint && nwp->d_children[3]->d_tok.d_type == Tok_Rpar );
+                    const int slot = nwp->d_children[2]->d_tok.d_val.toUInt();
+                    if( slot > LJ_MAX_SLOTS )
+                        return error( nwp->d_children[2], tr("preset slot out of range") );
+                    vv->d_slotPreset = true;
+                    vv->d_slot = slot;
+                }
                 createDeclXref(vv,name,me);
             }
         }else
@@ -1416,8 +1443,13 @@ static void printPool( const QBitArray& pool, int len )
 
 bool Assembler::allocateRegisters3(Assembler::Func* me)
 {
+    // prepare slot pool and enter all params (which are fix allocated)
+    QBitArray pool(LJ_MAX_SLOTS);
+    for( int i = 0; i < me->d_params.size(); i++ )
+        pool.setBit(i);
+
     // collect all pending registers which are part of an array
-    QSet<Var*> arrays,overlaps;
+    QSet<Var*> arrays;
     QList<Var*> headers, all;
     Func::Names::const_iterator ni;
     for( ni = me->d_names.begin(); ni != me->d_names.end(); ++ni )
@@ -1425,19 +1457,24 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         Var* v = ni.value()->toVar();
         if( v && !v->isUnused() )
             all << v;
+        if( v && v->d_n == 1 && !v->isUnused() && !v->isFixed() && v->d_slotPreset )
+            pool.setBit( v->d_slot );
+
         if( v && v->d_n > 1 && !v->isUnused() && !v->isFixed() )
         {
             Var* h = v;
-            headers << h;
+            if( !h->d_slotPreset )
+                headers << h;
             int n = v->d_n;
             while( v && n > 0 )
             {
                 // overlaps are only possible for Vars which belong to the same group or array
                 // it is sufficient to only register the overlaping header
-                if( arrays.contains(v) )
-                    overlaps << h;
-                else
+                if( !v->d_slotPreset )
                     arrays << v;
+                if( h->d_slotPreset && !v->d_slotPreset || !h->d_slotPreset && v->d_slotPreset )
+                    return error(me->d_st, tr("group or array '%1' requires each element to be preallocated").
+                                 arg(h->d_name.constData()));
                 v = v->d_next;
                 n--;
             }
@@ -1461,11 +1498,6 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
     }
 #endif
 
-    // prepare slot pool and enter all params (which are fix allocated)
-    QBitArray pool(LJ_MAX_SLOTS);
-    for( int i = 0; i < me->d_params.size(); i++ )
-        pool.setBit(i);
-
     // collect all pending registers which use only one slot and handle these first
     Intervals vars;
     for( ni = me->d_names.begin(); ni != me->d_names.end(); ++ni )
@@ -1473,16 +1505,21 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         Var* v = ni.value()->toVar();
         if( v && !v->isUnused() && !arrays.contains(v) && !v->isFixed() )
         {
-            Q_ASSERT( v->d_n == 1 );
-            if( v->d_uv )
+            if( v->d_slotPreset )
+                ; // NOP
+            else if( v->d_uv )
             {
+                Q_ASSERT( v->d_n == 1 );
                 // Do fix allocation for each slot used as upvalue
                 const int slot = nextFreeSlot(pool);
                 if( slot < 0 )
                     return error( me->d_st, tr("running out of slots for up values") );
                 v->d_slot = slot;
             }else
+            {
+                Q_ASSERT( v->d_n == 1 );
                 vars << Interval(v->d_from,v->d_to,v);
+            }
         }
     }
 
@@ -2061,6 +2098,15 @@ JitComposer::UpvalList Assembler::Func::getUpvals() const
 JitComposer::VarNameList Assembler::Func::getVarNames() const
 {
     JitComposer::VarNameList res( d_firstUnused.d_slot );
+
+    for( int i = 0; i < res.size(); i++ )
+    {
+        // RISK: otherwise not used slots (due to manual preset) lead to wrong name assignments
+        res[i].d_from = d_firstUnused.d_from;
+        res[i].d_to = d_firstUnused.d_to;
+        res[i].d_name = "N/A";
+    }
+
     Names::const_iterator i;
     for( i = d_names.begin(); i != d_names.end(); ++i )
     {
@@ -2069,10 +2115,11 @@ JitComposer::VarNameList Assembler::Func::getVarNames() const
         {
             JitComposer::VarName& n = res[v->d_slot];
             n.d_name = v->d_name;
-            n.d_from = v->d_from;
-            n.d_to = v->d_to;
+            //n.d_from = v->d_from; // TODO: do we need true ranges?
+            //n.d_to = v->d_to;
         }
     }
+
     return res;
 }
 

@@ -34,11 +34,14 @@ formal_params ::=  { vname } // TODO [ '...' ]
 
 var_decls ::= var { var_decl | record } 
 
-var_decl ::= vname // TODO [ array ]
+var_decl ::= nameWithPreset  // TODO [ array ]
+
+nameWithPreset ::= vname [ '(' posint ')' ] // preset the slot number to be used by the variable
 
 // TODO array ::= '[' posint ']' // an array of n consecutive slots, e.g. range[10]
 
-record ::= '{' vname { vname } '}' // the fields occupy consecutive slots and are in the same namspace as the other vars
+record ::= '{' nameWithPreset { nameWithPreset } '}' // the fields occupy consecutive slots and are in the 
+							// same namspace as the other vars
 
 const_decls ::= const  cname '=' const_val { cname '=' const_val  }
 

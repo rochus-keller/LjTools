@@ -36,9 +36,6 @@ bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& pat
         out << "Lua source";
     else
         out << path;
-    if( !bc.isStripped() && !stripped )
-        out << endl << "-- NOTE that disassembling unstripped code changes behaviour of FORI/FORL operators" << endl;
-    // TODO: extend syntax to use predefined register allocations
     out << endl << endl;
     if( !writeFunc( out, bc.getRoot(), stripped, 0 ) )
         return false;
@@ -178,7 +175,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
                     continue;
                 unique.insert(name,i);
 
-                buf += name + " ";
+                buf += name + "(" + QByteArray::number(i) + ") ";
                 if( buf.size() > 80 )
                 {
                     out << buf << endl;
@@ -199,7 +196,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
         buf += "{ ";
         for( int i = nextR; i < f->d_framesize; i++ )
         {
-            buf += "R" + QByteArray::number( i ) + " ";
+            buf += "R" + QByteArray::number( i ) + "(" + QByteArray::number(i) + ") ";
             if( buf.size() > 80 )
             {
                 out << buf << endl;

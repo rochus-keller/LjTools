@@ -65,6 +65,7 @@ namespace Ljas {
 			R_integer,
 			R_label,
 			R_labelDef,
+			R_nameWithPreset,
 			R_number,
 			R_primitive,
 			R_record,
@@ -77,7 +78,7 @@ namespace Ljas {
 		};
 		SynTree(quint16 r = Tok_Invalid, const Token& = Token() );
 		SynTree(const Token& t ):d_tok(t){}
-        ~SynTree() { foreach(SynTree* n, d_children) delete n; }
+		~SynTree() { foreach(SynTree* n, d_children) delete n; }
 
 		static const char* rToStr( quint16 r );
 

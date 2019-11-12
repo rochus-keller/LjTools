@@ -64,6 +64,7 @@ const char* SynTree::rToStr( quint16 r ) {
 		case R_integer: return "integer";
 		case R_label: return "label";
 		case R_labelDef: return "labelDef";
+		case R_nameWithPreset: return "nameWithPreset";
 		case R_number: return "number";
 		case R_primitive: return "primitive";
 		case R_record: return "record";

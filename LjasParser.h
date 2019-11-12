@@ -151,6 +151,7 @@ Ljas::SynTree d_root;
 	void vname();
 	void var_decl();
 	void record();
+	void nameWithPreset();
 	void cname();
 	void const_val();
 	void number();

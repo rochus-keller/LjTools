@@ -394,7 +394,7 @@ void Parser::vname() {
 
 void Parser::var_decl() {
 		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_var_decl, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
-		vname();
+		nameWithPreset();
 		d_stack.pop(); 
 }
 
@@ -402,12 +402,26 @@ void Parser::record() {
 		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_record, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
 		Expect(_T_Lbrace,__FUNCTION__);
 		addTerminal(); 
-		vname();
+		nameWithPreset();
 		while (la->kind == _T_ident) {
-			vname();
+			nameWithPreset();
 		}
 		Expect(_T_Rbrace,__FUNCTION__);
 		addTerminal(); 
+		d_stack.pop(); 
+}
+
+void Parser::nameWithPreset() {
+		Ljas::SynTree* n = new Ljas::SynTree( Ljas::SynTree::R_nameWithPreset, d_next ); d_stack.top()->d_children.append(n); d_stack.push(n); 
+		vname();
+		if (la->kind == _T_Lpar) {
+			Get();
+			addTerminal(); 
+			Expect(_T_posint,__FUNCTION__);
+			addTerminal(); 
+			Expect(_T_Rpar,__FUNCTION__);
+			addTerminal(); 
+		}
 		d_stack.pop(); 
 }
 

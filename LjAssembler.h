@@ -84,8 +84,9 @@ namespace Ljas
         struct Func;
         struct Var : public Named
         {
-            uint d_from : 23;
+            uint d_from : 22;
             uint d_uvRo : 1;
+            uint d_slotPreset : 1;
             uint d_n : 8;   // number of consecutive slots required
             uint d_to : 23; // active range in bytecode list
             uint d_uv : 1; // used as upvalue
@@ -94,7 +95,7 @@ namespace Ljas
             Var* d_prev;
             Func* d_func;
             virtual bool isVar() const { return true; }
-            Var():d_from(0),d_to(0),d_slot(0),d_next(0),d_prev(0),d_func(0),d_uv(0),d_n(1),d_uvRo(1){}
+            Var():d_from(0),d_to(0),d_slot(0),d_next(0),d_prev(0),d_func(0),d_uv(0),d_n(1),d_uvRo(1),d_slotPreset(0){}
             bool isUnused() const;
             bool isFixed() const;
             QPair<int,int> bounds() const; // from to of all n
