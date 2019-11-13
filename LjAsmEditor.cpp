@@ -734,7 +734,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjAsmEditor");
-    a.setApplicationVersion("0.5");
+    a.setApplicationVersion("0.5.1");
     a.setStyle("Fusion");
 
     Lua::AsmEditor w;

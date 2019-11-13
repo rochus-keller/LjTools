@@ -71,6 +71,48 @@ int Engine2::_print (lua_State *L)
     return 0;
 }
 
+static int print1(lua_State* L)
+{
+    switch( lua_type(L,1) )
+    {
+    case LUA_TNIL:
+        qDebug() << "nil";
+        break;
+    case LUA_TSTRING:
+        {
+            const char* str = lua_tostring(L,1);
+            qDebug() << str;
+        }
+        break;
+    case LUA_TBOOLEAN:
+        qDebug() << ( lua_toboolean(L,1) ? true : false );
+        break;
+    case LUA_TNUMBER:
+        qDebug() << lua_tonumber(L,1);
+        break;
+    case LUA_TLIGHTUSERDATA:
+        qDebug() << "LUA_TLIGHTUSERDATA";
+        break;
+    case LUA_TTABLE:
+        qDebug() << "LUA_TTABLE";
+        break;
+    case LUA_TFUNCTION:
+        qDebug() << "LUA_TFUNCTION";
+        break;
+    case LUA_TUSERDATA:
+        qDebug() << "LUA_TUSERDATA";
+        break;
+    case LUA_TTHREAD:
+        qDebug() << "LUA_TTHREAD";
+        break;
+    default:
+        qDebug() << "unknown";
+        break;
+    }
+
+    return 0;
+}
+
 static int _flush(lua_State* L)
 {
     return 0; // NOP
@@ -143,6 +185,8 @@ Engine2::Engine2(QObject *p):QObject(p),
     lua_pushcfunction( ctx, _print );
     lua_setglobal( ctx, "print" );
 #endif
+    lua_pushcfunction( ctx, print1 );
+    lua_setglobal( ctx, "print1" );
 }
 
 Engine2::~Engine2()
