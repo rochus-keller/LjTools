@@ -71,44 +71,63 @@ int Engine2::_print (lua_State *L)
     return 0;
 }
 
-static int print1(lua_State* L)
+static int dbgout(lua_State* L)
 {
-    switch( lua_type(L,1) )
+    const int top = lua_gettop(L);
+
+    QByteArray buf;
+    QTextStream ts(&buf,QIODevice::WriteOnly);
+    for( int i = 1; i <= top; i++ )
     {
-    case LUA_TNIL:
-        qDebug() << "nil";
-        break;
-    case LUA_TSTRING:
+        if( i != 1 )
+            ts << "\t";
+        switch( lua_type(L,i) )
         {
-            const char* str = lua_tostring(L,1);
-            qDebug() << str;
+        case LUA_TNIL:
+            ts << "nil";
+            break;
+        case LUA_TSTRING:
+            {
+                const char* str = lua_tostring(L,i);
+                ts << str;
+            }
+            break;
+        case LUA_TBOOLEAN:
+            ts << ( lua_toboolean(L,i) ? true : false );
+            break;
+        case LUA_TNUMBER:
+            {
+                const lua_Number n = lua_tonumber(L,i);
+                const int nn = n;
+                if( n == lua_Number(nn) )
+                    ts << nn;
+                else
+                    ts << n;
+            }
+            break;
+        case LUA_TLIGHTUSERDATA:
+            ts << "LUA_TLIGHTUSERDATA";
+            break;
+        case LUA_TTABLE:
+            ts << "LUA_TTABLE";
+            break;
+        case LUA_TFUNCTION:
+            ts << "LUA_TFUNCTION";
+            break;
+        case LUA_TUSERDATA:
+            ts << "LUA_TUSERDATA";
+            break;
+        case LUA_TTHREAD:
+            ts << "LUA_TTHREAD";
+            break;
+        default:
+            ts << "<unknown>";
+            break;
         }
-        break;
-    case LUA_TBOOLEAN:
-        qDebug() << ( lua_toboolean(L,1) ? true : false );
-        break;
-    case LUA_TNUMBER:
-        qDebug() << lua_tonumber(L,1);
-        break;
-    case LUA_TLIGHTUSERDATA:
-        qDebug() << "LUA_TLIGHTUSERDATA";
-        break;
-    case LUA_TTABLE:
-        qDebug() << "LUA_TTABLE";
-        break;
-    case LUA_TFUNCTION:
-        qDebug() << "LUA_TFUNCTION";
-        break;
-    case LUA_TUSERDATA:
-        qDebug() << "LUA_TUSERDATA";
-        break;
-    case LUA_TTHREAD:
-        qDebug() << "LUA_TTHREAD";
-        break;
-    default:
-        qDebug() << "unknown";
-        break;
     }
+    ts.flush();
+
+    qDebug() << buf.constData();
 
     return 0;
 }
@@ -185,8 +204,8 @@ Engine2::Engine2(QObject *p):QObject(p),
     lua_pushcfunction( ctx, _print );
     lua_setglobal( ctx, "print" );
 #endif
-    lua_pushcfunction( ctx, print1 );
-    lua_setglobal( ctx, "print1" );
+    lua_pushcfunction( ctx, dbgout );
+    lua_setglobal( ctx, "dbgout" );
 }
 
 Engine2::~Engine2()

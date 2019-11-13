@@ -52,7 +52,7 @@ static void report(QtMsgType type, const QString& message )
         switch(type)
         {
         case QtDebugMsg:
-            s_this->logMessage(QLatin1String("INF: ") + message);
+            s_this->logMessage(message);
             break;
         case QtWarningMsg:
             s_this->logMessage(QLatin1String("WRN: ") + message);
@@ -734,7 +734,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjAsmEditor");
-    a.setApplicationVersion("0.5.1");
+    a.setApplicationVersion("0.5.2");
     a.setStyle("Fusion");
 
     Lua::AsmEditor w;

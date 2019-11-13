@@ -26,6 +26,8 @@ TEMPLATE = app
 
 INCLUDEPATH += .. ./luajit-2.0
 
+#DEFINES += LUA_ENGINE_USE_DEFAULT_PRINT
+
 SOURCES += LjAsmEditor.cpp \
     ../GuiTools/CodeEditor.cpp \
     LuaHighlighter.cpp \

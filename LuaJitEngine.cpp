@@ -96,6 +96,7 @@ bool JitEngine::error(const QString& msg) const
 void JitEngine::installLibs()
 {
     d_globals[QByteArray("print")] = QVariant::fromValue( CFunction(_print) );
+    d_globals[QByteArray("dbgout")] = QVariant::fromValue( CFunction(_print) );
     d_globals[QByteArray("_VERSION")] = QByteArray("TestVM");
 }
 
@@ -205,8 +206,13 @@ QVariant JitEngine::getPriConst(int i)
 int JitEngine::_print(JitEngine* eng, QVariantList& inout)
 {
     QByteArray str;
-    foreach( const QVariant& v, inout )
+    for( int i = 0; i < inout.size(); i++ )
+    {
+        const QVariant& v = inout[i];
+        if( i != 0 )
+            str += "\t";
         str += tostring(v);
+    }
     emit eng->sigPrint( str );
     return 0;
 }

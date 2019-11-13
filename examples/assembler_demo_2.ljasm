@@ -1,0 +1,25 @@
+-- This program demonstrates that with certain functions there is a different 
+-- result depending on the order of register slot allocation
+-- see https://www.freelists.org/post/luajit/Strange-effect-with-LuaJIT-20-FORIFORL-bytecode-operationsunexpected-dependency-on-slot-allocation-order
+
+function Main() 	
+	var	print { A B C D }  { G H K }
+	-- NOTE: this code doesn't work with the built-in print() function, probably because of varg 
+	-- dbgout is a custom C function which collects all actual params and sends them to qDebug()
+	-- The built-in allocator produces: print(0) A(4) B(5) C(6) D(7) G(1) H(2) K(3)
+begin
+	GGET print "dbgout" -- check what happens if this was "print"
+	KSET  A 1		
+	KSET  B 5		
+	KSET  C 1		
+	FORI  A ForEnd		
+ForLoop:
+	MOV  G print	
+	MOV  H D	
+	KSET K "test"
+	CALL  G 0 2		
+	FORL  A ForLoop		
+ForEnd:
+	RET 		
+end Main
+
