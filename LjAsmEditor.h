@@ -65,7 +65,8 @@ namespace Lua
         void onCursor();
         void onExportBc();
         void onImport();
-        void onImport2();
+        void onImportStripped();
+        void onImportAlloc();
         void onParse();
         void onUsedByDblClicked();
 
@@ -79,6 +80,8 @@ namespace Lua
         JitEngine* d_eng;
         QByteArray d_bc;
         bool d_lock;
+        bool d_importStrip;
+        bool d_importAlloc;
     };
 }
 

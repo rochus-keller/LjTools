@@ -278,11 +278,11 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
 
     Func* me = new Func();
     me->d_outer = outer;
-    me->d_st = st;
+    me->d_name = st;
     if( fname && outer )
     {
-        me->d_name = fname->d_tok.d_val;
-        outer->d_names.insert(me->d_name, me);
+        me->d_name = fname;
+        outer->d_names.insert(me->d_name->d_tok.d_val, me);
     }else if( outer )
         outer->d_names.insert(QByteArray(),me);
     else
@@ -292,11 +292,11 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
     {
         Xref* x = new Xref();
         me->d_xref = x;
-        x->d_name = me->d_name;
+        x->d_name = me->d_name->d_tok.d_val;
         x->d_kind = Xref::Func;
         x->d_role = Xref::Decl;
-        x->d_line = fname->d_tok.d_lineNr;
-        x->d_col = fname->d_tok.d_colNr;
+        x->d_line = me->d_name->d_tok.d_lineNr;
+        x->d_col = me->d_name->d_tok.d_colNr;
         if( outer )
         {
             Q_ASSERT( outer->d_xref );
@@ -410,7 +410,7 @@ bool Assembler::processFunc(SynTree* st, Func* outer)
         if( lastName && lastName->d_tok.d_type == Tok_ident )
         {
             Xref* x = new Xref();
-            x->d_name = me->d_name;
+            x->d_name = me->d_name->d_tok.d_val;
             x->d_kind = Xref::Func;
             x->d_role = Xref::Ref;
             x->d_line = lastName->d_tok.d_lineNr;
@@ -437,10 +437,10 @@ bool Assembler::processParams(SynTree* hdr, Assembler::Func* me )
         if( me->d_names.contains(p->d_tok.d_val) )
             return error( p, tr("parameter name not unique") );
         Var* s = new Var();
-        s->d_name = p->d_tok.d_val;
+        s->d_name = p;
         s->d_slot = i; // allocate already here
         s->d_to = 1; // mark all params as being used. TODO: why is this? can't we reuse param slots?
-        me->d_names.insert( s->d_name, s );
+        me->d_names.insert( s->d_name->d_tok.d_val, s );
         s->d_func = me;
         me->d_params.append( s );
         createDeclXref(s,p,me);
@@ -463,8 +463,8 @@ bool Assembler::processConsts(SynTree* hdr, Assembler::Func* me)
         if( me->d_names.contains(name->d_tok.d_val) )
             return error( name, tr("constant name not unique") );
         Const* cc = new Const();
-        cc->d_name = name->d_tok.d_val;
-        me->d_names.insert( cc->d_name, cc );
+        cc->d_name = name;
+        me->d_names.insert( cc->d_name->d_tok.d_val, cc );
         createDeclXref(cc,name,me);
         if( !processConst( val, cc, true ) )
             return false;
@@ -531,8 +531,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
             SynTree* nwp = v->d_children[i]->d_children.first();
             Q_ASSERT( nwp->d_tok.d_type == SynTree::R_nameWithPreset && !nwp->d_children.isEmpty() );
             SynTree* nameSt = flatten(nwp->d_children.first());
-            const QByteArray name = nameSt->d_tok.d_val;
-            if( me->d_names.contains(name) )
+            if( me->d_names.contains(nameSt->d_tok.d_val) )
                 return error( nameSt, tr("variable name not unique") );
 #ifdef _SUPPORT_ARRAYS_
             if( d->d_children.size() == 2 )
@@ -552,6 +551,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                 {
                     Var* vv = new Var();
                     vv->d_name = name;
+                    vv->d_st = nameSt;
                     if( prev )
                     {
                         prev->d_next = vv;
@@ -566,9 +566,9 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
 #endif
             {
                 Var* vv = new Var();
-                vv->d_name = name;
-                me->d_names.insert( name, vv );
+                me->d_names.insert( nameSt->d_tok.d_val, vv );
                 vv->d_func = me;
+                vv->d_name = nameSt;
                 createDeclXref(vv,nameSt,me);
                 if( nwp->d_children.size() > 1 )
                 {
@@ -597,7 +597,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                 if( me->d_names.contains(name->d_tok.d_val) )
                     return error( name, tr("variable name not unique") );
                 Var* vv = new Var();
-                vv->d_name = name->d_tok.d_val;
+                vv->d_name = name;
                 if( prev )
                 {
                     prev->d_next = vv;
@@ -605,7 +605,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                 }
                 prev = vv;
                 vv->d_func = me;
-                me->d_names.insert( vv->d_name, vv );
+                me->d_names.insert( vv->d_name->d_tok.d_val, vv );
                 if( nwp->d_children.size() > 1 )
                 {
                     Q_ASSERT( nwp->d_children.size() == 4 && nwp->d_children[1]->d_tok.d_type == Tok_Lpar &&
@@ -1075,7 +1075,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             }else
                 s.d_vals << rets << args;
             const int n = qMax( rets, args + 1 );
-            if( !fetchV( st->d_children[1], s, me, n ) )
+            if( !fetchV( st->d_children[1], s, me, n, true, true ) )
                 return false;
             Q_ASSERT( s.d_vals.size() == 3 );
             s.d_vals.push_front(s.d_vals.back());
@@ -1091,7 +1091,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             const int n = s.d_vals.back().toInt() + 1;
             if( n > LJ_MAX_SLOTS )
                 return error( st->d_children[2], tr("invalid number of argument") );
-            if( !fetchV( st->d_children[1], s, me, n ) )
+            if( !fetchV( st->d_children[1], s, me, n, true, true ) )
                 return false;
             Q_ASSERT( s.d_vals.size() == 2 );
             qSwap(s.d_vals[0],s.d_vals[1]);
@@ -1152,7 +1152,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
     return true;
 }
 
-bool Assembler::fetchV(SynTree* st, Assembler::Stmt& s, Assembler::Func* me, int count , bool lhs)
+bool Assembler::fetchV(SynTree* st, Assembler::Stmt& s, Assembler::Func* me, int count , bool lhs, bool call)
 {
     Q_ASSERT( count > 0 ); // number of consecutive variables required
 
@@ -1165,6 +1165,8 @@ bool Assembler::fetchV(SynTree* st, Assembler::Stmt& s, Assembler::Func* me, int
     Var* v = ns.first->toVar();
     if( v == 0 )
         return error(st,tr("argument doesn't designate a variable"));
+    if( call )
+        v->d_call = true;
     if( v->d_n < count )
         v->d_n = count;
     while( count )
@@ -1463,7 +1465,11 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         {
             Var* h = v;
             if( !h->d_slotPreset )
+            {
                 headers << h;
+                if( h->d_call && !checkCallGroup(h) )
+                    return false;
+            }
             int n = v->d_n;
             while( v && n > 0 )
             {
@@ -1472,8 +1478,8 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
                 if( !v->d_slotPreset )
                     arrays << v;
                 if( h->d_slotPreset && !v->d_slotPreset || !h->d_slotPreset && v->d_slotPreset )
-                    return error(me->d_st, tr("group or array '%1' requires each element to be preallocated").
-                                 arg(h->d_name.constData()));
+                    return error(h->d_name, tr("group or array '%1' requires each element to be preallocated").
+                                 arg(h->d_name->d_tok.d_val.constData()));
                 v = v->d_next;
                 n--;
             }
@@ -1512,7 +1518,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
                 // Do fix allocation for each slot used as upvalue
                 const int slot = nextFreeSlot(pool);
                 if( slot < 0 )
-                    return error( me->d_st, tr("running out of slots for up values") );
+                    return error( me->d_name, tr("running out of slots for up values") );
                 v->d_slot = slot;
             }else
             {
@@ -1524,7 +1530,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
 
     // allocate the scalars
     if( !allocateWithLinearScan( pool, vars, 1 ) )
-         return error( me->d_st, tr("function requires more slots of length 1 than supported") );
+         return error( me->d_name, tr("function requires more slots of length 1 than supported") );
     for( int i = 0; i < vars.size(); i++ )
         static_cast<Var*>(vars[i].d_payload)->d_slot = vars[i].d_slot;
     //printPool(pool,all.size());
@@ -1558,14 +1564,15 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
 #endif
     }
 
-    QMap<quint8,VarList> headersByN;
+    typedef QMap<QPair<bool,quint8>,VarList> HBN;
+    HBN headersByN;
     foreach( Var* h, headers )
     {
-        if( h->d_n ) // no longer interested in resolved overlaping headers
-            headersByN[h->d_n].append(h);
+        if( h->d_n != 0 ) // no longer interested in resolved overlaping headers
+            headersByN[qMakePair(h->d_call,h->d_n)].append(h);
     }
 
-    QMap<quint8,VarList>::const_iterator i;
+    HBN::const_iterator i;
     for( i = headersByN.begin(); i != headersByN.end(); ++i )
     {
         vars.clear();
@@ -1574,17 +1581,17 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
             QPair<int,int> ft = h->bounds();
             vars << Interval(ft.first,ft.second,h);
         }
-        if( i.key() > 4 && vars.size() == 1 && i != --headersByN.end() )
+        if( i.key().second > 4 && vars.size() == 1 && i != --headersByN.end() )
             qWarning() << "TODO: quantize array lenghts >=" << i.key();
 
         // allocate the scalars
-        if( !allocateWithLinearScan( pool, vars, i.key() ) )
-             return error( me->d_st, tr("function requires more slots of length %1 than supported").arg(i.key()) );
+        if( !allocateWithLinearScan( pool, vars, i.key().second ) )
+             return error( me->d_name, tr("function requires more slots of length %1 than supported").arg(i.key().second) );
         // printPool(pool,all.size());
         for( int j = 0; j < vars.size(); j++ )
         {
             Var* v = static_cast<Var*>(vars[j].d_payload);
-            int n = i.key();
+            int n = i.key().second;
             while( n-- > 0 )
             {
                 Q_ASSERT( v != 0 );
@@ -1777,6 +1784,25 @@ bool Assembler::generateCode(Func* f, const Stmts& stmts)
     return true;
 }
 
+bool Assembler::checkCallGroup(Assembler::Var* v)
+{
+    Var* check = v;
+    while( check )
+    {
+        if( check->d_n > 1 && !check->d_call )
+            return error(v->d_name, tr("records cannot be used for both calls and non-calls") );
+        check = check->d_next;
+    }
+    check = v;
+    while( check )
+    {
+        if( check->d_n > 1 && !check->d_call )
+            return error(v->d_name, tr("records cannot be used for both calls and non-calls") );
+        check = check->d_prev;
+    }
+    return true;
+}
+
 void Assembler::createUseXref(Assembler::Named* n, SynTree* st, Assembler::Func* f, int count, bool lhs)
 {
     if( d_createXref )
@@ -1784,7 +1810,7 @@ void Assembler::createUseXref(Assembler::Named* n, SynTree* st, Assembler::Func*
         while( n != 0 && count-- > 0 )
         {
             Xref* x = new Xref();
-            x->d_name = n->d_name;
+            x->d_name = n->d_name->d_tok.d_val;
             x->d_role = lhs ? Xref::Lhs : Xref::Rhs;
             x->d_kind = n->isConst() ? Xref::Const : ( n->isVar() ? Xref::Var : Xref::Func );
             x->d_line = st->d_tok.d_lineNr;
@@ -1809,7 +1835,7 @@ void Assembler::createDeclXref(Assembler::Named* n, SynTree* st, Assembler::Func
     {
         Xref* x = new Xref();
         n->d_xref = x;
-        x->d_name = n->d_name;
+        x->d_name = n->d_name->d_tok.d_val;
         x->d_role = Xref::Decl;
         x->d_kind = n->isConst() ? Xref::Const : ( n->isVar() ? Xref::Var : Xref::Func );
         x->d_line = st->d_tok.d_lineNr;
@@ -2080,7 +2106,7 @@ JitComposer::UpvalList Assembler::Func::getUpvals() const
     {
         Q_ASSERT( d_outer );
         JitComposer::Upval u;
-        u.d_name = i.key()->d_name;
+        u.d_name = i.key()->d_name->d_tok.d_val;
         if( i.key()->d_uvRo )
             u.d_isRo = true;
         if( i.key()->d_func == d_outer )
@@ -2113,7 +2139,7 @@ JitComposer::VarNameList Assembler::Func::getVarNames() const
         if( ( v = i.value()->toVar() ) && !v->isUnused() )
         {
             JitComposer::VarName& n = res[v->d_slot];
-            n.d_name = v->d_name;
+            n.d_name = v->d_name->d_tok.d_val;
             //n.d_from = v->d_from; // TODO: do we need true ranges?
             //n.d_to = v->d_to;
         }

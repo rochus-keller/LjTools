@@ -30,9 +30,10 @@ namespace Ljas
     class Disasm
     {
     public:
-        static bool disassemble(const Lua::JitBytecode&, QIODevice*, const QString& path = QString(), bool stripped = false );
+        static bool disassemble(const Lua::JitBytecode&, QIODevice*, const QString& path = QString(),
+                                bool stripped = false, bool alloc = false );
     protected:
-        static bool writeFunc( QTextStream& out, const Lua::JitBytecode::Function*, bool stripped, int indent = 0 );
+        static bool writeFunc( QTextStream& out, const Lua::JitBytecode::Function*, bool stripped, bool alloc, int indent = 0 );
         static QByteArray renderArg(const Lua::JitBytecode::Function* f, int t, int v, int pc, bool stripped );
     private:
         Disasm();

@@ -281,6 +281,9 @@ AsmEditor::AsmEditor(QWidget *parent)
     if( !state.isNull() )
         restoreState( state.toByteArray() );
 
+    d_importStrip = s.value("ImportStrip", true).toBool();
+    d_importAlloc = s.value("ImportAlloc", true).toBool();
+
 
     connect(d_edit, SIGNAL(modificationChanged(bool)), this, SLOT(onCaption()) );
     connect(d_edit,SIGNAL(cursorPositionChanged()),this,SLOT(onCursor()));
@@ -334,7 +337,8 @@ void AsmEditor::createMenu()
     pop->addCommand( "New", this, SLOT(onNew()), tr("CTRL+N"), false );
     pop->addCommand( "Open...", this, SLOT(onOpen()), tr("CTRL+O"), false );
     pop->addCommand( "Import from Lua...", this, SLOT(onImport()), tr("CTRL+I"), false );
-    pop->addCommand( "Import from Lua (stripped)...", this, SLOT(onImport2()), tr("CTRL+SHIFT+I"), false );
+    pop->addCommand( "Import stripped", this, SLOT(onImportStripped()) );
+    pop->addCommand( "Import allocations", this, SLOT(onImportAlloc()) );
     pop->addCommand( "Save", this, SLOT(onSave()), tr("CTRL+S"), false );
     pop->addCommand( "Save as...", this, SLOT(onSaveAs()) );
     pop->addSeparator();
@@ -381,7 +385,6 @@ void AsmEditor::createMenu()
     new Gui::AutoShortcut( tr("CTRL+SHIFT+R"), this, this, SLOT(onRun2()) );
     new Gui::AutoShortcut( tr("CTRL+T"), this, this, SLOT(onParse()) );
     new Gui::AutoShortcut( tr("CTRL+I"), this, this, SLOT(onImport()) );
-    new Gui::AutoShortcut( tr("CTRL+SHIFT+I"), this, this, SLOT(onImport2()) );
 }
 
 void AsmEditor::createDumpView()
@@ -588,14 +591,25 @@ void AsmEditor::onImport()
 {
     ENABLED_IF(true);
 
-    import(false);
+    import(d_importStrip);
 }
 
-void AsmEditor::onImport2()
+void AsmEditor::onImportStripped()
 {
-    ENABLED_IF(true);
+    CHECKED_IF(true, d_importStrip);
 
-    import(true);
+    d_importStrip = !d_importStrip;
+    QSettings s;
+    s.setValue("ImportStrip", d_importStrip);
+}
+
+void AsmEditor::onImportAlloc()
+{
+    CHECKED_IF(true, d_importAlloc);
+
+    d_importAlloc = !d_importAlloc;
+    QSettings s;
+    s.setValue("ImportAlloc", d_importAlloc);
 }
 
 void AsmEditor::onParse()
@@ -722,7 +736,7 @@ void AsmEditor::import(bool stripped)
 
     QBuffer buf;
     buf.open(QIODevice::WriteOnly);
-    Ljas::Disasm::disassemble( bc, &buf, fileName, stripped );
+    Ljas::Disasm::disassemble( bc, &buf, fileName, stripped, d_importAlloc );
     buf.close();
     d_edit->setPlainText(buf.buffer());
     onParse();

@@ -62,9 +62,9 @@ namespace Ljas
         struct Arr;
         struct Named
         {
-            QByteArray d_name;
+            SynTree* d_name;
             Xref* d_xref;
-            Named():d_xref(0) {}
+            Named():d_xref(0),d_name(0) {}
             virtual ~Named() {}
             virtual bool isConst() const { return false; }
             virtual bool isVar() const { return false; }
@@ -88,14 +88,16 @@ namespace Ljas
             uint d_uvRo : 1;
             uint d_slotPreset : 1;
             uint d_n : 8;   // number of consecutive slots required
-            uint d_to : 23; // active range in bytecode list
+            uint d_to : 22; // active range in bytecode list
             uint d_uv : 1; // used as upvalue
+            uint d_call : 1; // used in call
             uint d_slot : 8;
             Var* d_next;
             Var* d_prev;
             Func* d_func;
             virtual bool isVar() const { return true; }
-            Var():d_from(0),d_to(0),d_slot(0),d_next(0),d_prev(0),d_func(0),d_uv(0),d_n(1),d_uvRo(1),d_slotPreset(0){}
+            Var():d_from(0),d_to(0),d_slot(0),d_next(0),d_prev(0),d_func(0),
+                d_uv(0),d_n(1),d_uvRo(1),d_slotPreset(0),d_call(0){}
             bool isUnused() const;
             bool isFixed() const;
             QPair<int,int> bounds() const; // from to of all n
@@ -115,10 +117,9 @@ namespace Ljas
             typedef QHash<Var*,quint16> Upvals;
             Upvals d_upvals; // not owned
             Func* d_outer;
-            SynTree* d_st;
             quint16 d_id;
             Var d_firstUnused;
-            Func():d_outer(0),d_st(0),d_id(0) {}
+            Func():d_outer(0),d_id(0) {}
             ~Func();
             virtual bool isFunc() const { return true; }
             Named* findAll(const QByteArray& name , bool* isLocal = 0) const;
@@ -146,7 +147,7 @@ namespace Ljas
         bool processVars( SynTree*, Func* me );
         bool processTable( SynTree*, Const* c );
         bool processStat( SynTree*, Stmts&, Func* );
-        bool fetchV(SynTree*, Stmt&, Func* , int count = 1, bool lhs = true);
+        bool fetchV(SynTree*, Stmt&, Func* , int count = 1, bool lhs = true, bool call = false);
         bool fetchU( SynTree*, Stmt&, Func*, bool lhs = true );
         bool fetchN(SynTree*, Stmt&);
         bool fetchS(SynTree*, Stmt&);
@@ -162,6 +163,7 @@ namespace Ljas
         bool checkSlotOrder(const Stmts& stmts);
         bool checkTestOp( const Stmts& stmts, int pc );
         bool generateCode(Func*,const Stmts& stmts);
+        bool checkCallGroup( Var* );
         void createUseXref( Named*, SynTree*, Func*, int count, bool lhs );
         void createDeclXref( Named*, SynTree*, Func* );
         int toValue( Func*, Lua::JitBytecode::Instruction::FieldType, const QVariant& );

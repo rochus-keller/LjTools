@@ -27,7 +27,7 @@ using namespace Ljas;
 using namespace Lua;
 
 
-bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& path, bool stripped)
+bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& path, bool stripped, bool alloc)
 {
     QTextStream out(f);
     out.setCodec("UTF-8");
@@ -37,7 +37,7 @@ bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& pat
     else
         out << path;
     out << endl << endl;
-    if( !writeFunc( out, bc.getRoot(), stripped, 0 ) )
+    if( !writeFunc( out, bc.getRoot(), stripped, alloc, 0 ) )
         return false;
     return true;
 }
@@ -56,7 +56,7 @@ static inline QByteArray varName( const QByteArray& name, int v )
         return name;
 }
 
-bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool stripped, int level)
+bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool stripped, bool alloc, int level)
 {
     if( f == 0 )
         return false;
@@ -175,7 +175,11 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
                     continue;
                 unique.insert(name,i);
 
-                buf += name + "(" + QByteArray::number(i) + ") ";
+                buf += name;
+                if( alloc )
+                    buf += "(" + QByteArray::number(i) + ") ";
+                else
+                    buf += " ";
                 if( buf.size() > 80 )
                 {
                     out << buf << endl;
@@ -196,7 +200,11 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
         buf += "{ ";
         for( int i = nextR; i < f->d_framesize; i++ )
         {
-            buf += "R" + QByteArray::number( i ) + "(" + QByteArray::number(i) + ") ";
+            buf += "R" + QByteArray::number( i );
+            if( alloc )
+                buf += "(" + QByteArray::number(i) + ") ";
+            else
+                buf += " ";
             if( buf.size() > 80 )
             {
                 out << buf << endl;
@@ -240,7 +248,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
         {
             if( funCount++ == 0 )
                 out << endl;
-            writeFunc(out, o.value<JitBytecode::FuncRef>().constData(), stripped, level+1 );
+            writeFunc(out, o.value<JitBytecode::FuncRef>().constData(), stripped, alloc, level+1 );
         }
     }
 
