@@ -73,7 +73,9 @@ namespace Ljas
             Const* toConst() { return isConst() ? static_cast<Const*>(this) : 0; }
             Var* toVar() { return isVar() ? static_cast<Var*>(this) : 0; }
             Func* toFunc() { return isFunc() ? static_cast<Func*>(this) : 0; }
+#ifdef _SUPPORT_ARRAYS_
             Arr* toArr() { return isArr() ? static_cast<Arr*>(this) : 0; }
+#endif
         };
 
         struct Const : public Named
@@ -103,12 +105,14 @@ namespace Ljas
             QPair<int,int> bounds() const; // from to of all n
         };
         typedef QList<Var*> VarList;
+#ifdef _SUPPORT_ARRAYS_
         struct Arr : public Named
         {
             QList<Var*> d_elems; // owned
             ~Arr();
             virtual bool isArr() const { return true; }
         };
+#endif
         struct Func : public Named
         {
             typedef QMap<QByteArray,Named*> Names; // Map to sort alphabetically

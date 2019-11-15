@@ -1478,7 +1478,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
                 if( !v->d_slotPreset )
                     arrays << v;
                 if( h->d_slotPreset && !v->d_slotPreset || !h->d_slotPreset && v->d_slotPreset )
-                    return error(h->d_name, tr("group or array '%1' requires each element to be preallocated").
+                    return error(h->d_name, tr("record or array '%1' requires each element to be preallocated").
                                  arg(h->d_name->d_tok.d_val.constData()));
                 v = v->d_next;
                 n--;
@@ -2148,11 +2148,13 @@ JitComposer::VarNameList Assembler::Func::getVarNames() const
     return res;
 }
 
+#ifdef _SUPPORT_ARRAYS_
 Assembler::Arr::~Arr()
 {
     foreach( Var* v, d_elems )
         delete v;
 }
+#endif
 
 void Assembler::Stmt::registerRange(Assembler::Var* v)
 {

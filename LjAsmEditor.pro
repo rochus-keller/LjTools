@@ -71,7 +71,7 @@ HEADERS  += LjAsmEditor.h \
     LjAssembler.h \
     BcViewer.h
 
-include( /home/me/Desktop/LuaJIT-2.0.5/src/LuaJit.pri ){
+include( _/home/me/Desktop/LuaJIT-2.0.5/src/LuaJit.pri ){
     LIBS += -ldl
 } else {
     LIBS += -lluajit
