@@ -20,6 +20,7 @@
 #include "LuaJitComposer.h"
 #include <QtDebug>
 #include <QFile>
+#include <QBitArray>
 using namespace Lua;
 
 JitComposer::JitComposer(QObject *parent) : QObject(parent)
@@ -184,5 +185,82 @@ bool JitComposer::write(const QString& file)
     if( d_bc.d_fstack.isEmpty() )
         d_bc.d_fstack.push_back( d_bc.d_funcs.first() );
     return d_bc.write(file);
+}
+
+static bool sortIntervals( const JitComposer::Interval& lhs, const JitComposer::Interval& rhs )
+{
+    return lhs.d_from < rhs.d_from;
+}
+
+static int checkFree( const QBitArray& pool, int slot, int len )
+{
+    if( slot + len >= pool.size() )
+        return 0;
+    for( int i = 0; i < len ; i++ )
+    {
+        if( pool.at(slot+i) )
+            return i;
+    }
+    return len;
+}
+
+int JitComposer::nextFreeSlot( QBitArray& pool, int len )
+{
+    int slot = 0;
+    while( true )
+    {
+        // skip used
+        while( slot < pool.size() && pool.at(slot) )
+            slot++;
+        if( slot < pool.size() )
+        {
+            Q_ASSERT( !pool.at(slot) );
+            if( len == 1 )
+            {
+                pool.setBit(slot);
+                return slot;
+            } // else
+            const int free = checkFree( pool, slot, len );
+            if( free == len )
+            {
+                pool.fill(true,slot,slot+len);
+                return slot;
+            } // else
+            slot += free;
+        }
+    }
+    return -1;
+}
+
+bool JitComposer::allocateWithLinearScan(QBitArray& pool, JitComposer::Intervals& vars, int len)
+{
+    // according to Poletto & Sarkar (1999): Linear scan register allocation, ACM TOPLAS, Volume 21 Issue 5
+
+    std::sort( vars.begin(), vars.end(), sortIntervals );
+
+    typedef QMultiMap<quint32,quint32> Active; // to -> Interval
+    Active active;
+
+    for( int i = 0; i < vars.size(); i++ )
+    {
+        Active::iterator j = active.begin();
+        while( j != active.end() )
+        {
+            // ExpireOldIntervals(i)
+            if( vars[j.value()].d_to >= vars[i].d_from )
+            {
+                break;
+            }
+            pool.clearBit(vars[j.value()].d_slot);
+            pool.fill(false, vars[j.value()].d_slot, vars[j.value()].d_slot + len );
+            j = active.erase(j);
+        }
+        int slot = nextFreeSlot(pool,len);
+        if( active.size() >= MAX_SLOTS || slot < 0 )
+            return false;
+        vars[i].d_slot = slot;
+        active.insert(vars[i].d_to, i);
+    }
+    return true;
 }
 

@@ -26,100 +26,10 @@
 using namespace Ljas;
 using namespace Lua;
 
-#define LJ_MAX_SLOTS	250
-
 Q_DECLARE_METATYPE( Assembler::Named* )
 Q_DECLARE_METATYPE( SynTree* )
 
 // TODO: array vars
-
-
-struct Interval
-{
-    uint d_from : 24;
-    uint d_slot : 8;
-    quint32 d_to;
-    void* d_payload;
-    Interval(uint from, uint to, void* pl):d_from(from),d_to(to),d_payload(pl),d_slot(0){}
-};
-typedef QList<Interval> Intervals;
-
-static bool sortIntervals( const Interval& lhs, const Interval& rhs )
-{
-    return lhs.d_from < rhs.d_from;
-}
-
-static int checkFree( const QBitArray& pool, int slot, int len )
-{
-    if( slot + len >= pool.size() )
-        return 0;
-    for( int i = 0; i < len ; i++ )
-    {
-        if( pool.at(slot+i) )
-            return i;
-    }
-    return len;
-}
-
-static int nextFreeSlot( QBitArray& pool, int len = 1 )
-{
-    int slot = 0;
-    while( true )
-    {
-        // skip used
-        while( slot < pool.size() && pool.at(slot) )
-            slot++;
-        if( slot < pool.size() )
-        {
-            Q_ASSERT( !pool.at(slot) );
-            if( len == 1 )
-            {
-                pool.setBit(slot);
-                return slot;
-            } // else
-            const int free = checkFree( pool, slot, len );
-            if( free == len )
-            {
-                pool.fill(true,slot,slot+len);
-                return slot;
-            } // else
-            slot += free;
-        }
-    }
-    return -1;
-}
-
-static bool allocateWithLinearScan(QBitArray& pool, Intervals& vars, int len )
-{
-    // according to Poletto & Sarkar (1999): Linear scan register allocation, ACM TOPLAS, Volume 21 Issue 5
-
-    std::sort( vars.begin(), vars.end(), sortIntervals );
-
-    typedef QMultiMap<quint32,quint32> Active; // to -> Interval
-    Active active;
-
-    for( int i = 0; i < vars.size(); i++ )
-    {
-        Active::iterator j = active.begin();
-        while( j != active.end() )
-        {
-            // ExpireOldIntervals(i)
-            if( vars[j.value()].d_to >= vars[i].d_from )
-            {
-                break;
-            }
-            pool.clearBit(vars[j.value()].d_slot);
-            pool.fill(false, vars[j.value()].d_slot, vars[j.value()].d_slot + len );
-            j = active.erase(j);
-        }
-        int slot = nextFreeSlot(pool,len);
-        if( active.size() >= LJ_MAX_SLOTS || slot < 0 )
-            return false;
-        vars[i].d_slot = slot;
-        active.insert(vars[i].d_to, i);
-    }
-    return true;
-}
 
 Assembler::Assembler(Errors* errs):d_errs(errs),d_xref(0)
 {
@@ -575,7 +485,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                     Q_ASSERT( nwp->d_children.size() == 4 && nwp->d_children[1]->d_tok.d_type == Tok_Lpar &&
                             nwp->d_children[2]->d_tok.d_type == Tok_posint && nwp->d_children[3]->d_tok.d_type == Tok_Rpar );
                     const int slot = nwp->d_children[2]->d_tok.d_val.toUInt();
-                    if( slot > LJ_MAX_SLOTS )
+                    if( slot > JitComposer::MAX_SLOTS )
                         return error( nwp->d_children[2], tr("preset slot out of range") );
                     vv->d_slotPreset = true;
                     vv->d_slot = slot;
@@ -611,7 +521,7 @@ bool Assembler::processVars(SynTree* hdr, Assembler::Func* me)
                     Q_ASSERT( nwp->d_children.size() == 4 && nwp->d_children[1]->d_tok.d_type == Tok_Lpar &&
                             nwp->d_children[2]->d_tok.d_type == Tok_posint && nwp->d_children[3]->d_tok.d_type == Tok_Rpar );
                     const int slot = nwp->d_children[2]->d_tok.d_val.toUInt();
-                    if( slot > LJ_MAX_SLOTS )
+                    if( slot > JitComposer::MAX_SLOTS )
                         return error( nwp->d_children[2], tr("preset slot out of range") );
                     vv->d_slotPreset = true;
                     vv->d_slot = slot;
@@ -1068,9 +978,9 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                     args = s.d_vals.back().toInt();
                 }else
                     s.d_vals << args;
-                if( rets > LJ_MAX_SLOTS )
+                if( rets > JitComposer::MAX_SLOTS )
                     return error( st->d_children[2], tr("invalid number of return values") );
-                if( args > LJ_MAX_SLOTS )
+                if( args > JitComposer::MAX_SLOTS )
                     return error( st->d_children[2], tr("invalid number of argument") );
             }else
                 s.d_vals << rets << args;
@@ -1089,7 +999,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             if( !fetchN( st->d_children[2], s ) )
                 return false;
             const int n = s.d_vals.back().toInt() + 1;
-            if( n > LJ_MAX_SLOTS )
+            if( n > JitComposer::MAX_SLOTS )
                 return error( st->d_children[2], tr("invalid number of argument") );
             if( !fetchV( st->d_children[1], s, me, n, true, true ) )
                 return false;
@@ -1107,7 +1017,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                 if( !fetchN( st->d_children[2], s ) )
                     return false;
                 n = s.d_vals.back().toInt();
-                if( n > LJ_MAX_SLOTS )
+                if( n > JitComposer::MAX_SLOTS )
                     return error( st->d_children[2], tr("invalid number of return values") );
                 s.d_op = JitBytecode::OP_RET;
             }else
@@ -1445,7 +1355,7 @@ static void printPool( const QBitArray& pool, int len )
 bool Assembler::allocateRegisters3(Assembler::Func* me)
 {
     // prepare slot pool and enter all params (which are fix allocated)
-    QBitArray pool(LJ_MAX_SLOTS);
+    QBitArray pool(JitComposer::MAX_SLOTS);
     for( int i = 0; i < me->d_params.size(); i++ )
         pool.setBit(i);
 
@@ -1504,7 +1414,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
 #endif
 
     // collect all pending registers which use only one slot and handle these first
-    Intervals vars;
+    JitComposer::Intervals vars;
     for( ni = me->d_names.begin(); ni != me->d_names.end(); ++ni )
     {
         Var* v = ni.value()->toVar();
@@ -1516,20 +1426,20 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
             {
                 Q_ASSERT( v->d_n == 1 );
                 // Do fix allocation for each slot used as upvalue
-                const int slot = nextFreeSlot(pool);
+                const int slot = JitComposer::nextFreeSlot(pool);
                 if( slot < 0 )
                     return error( me->d_name, tr("running out of slots for up values") );
                 v->d_slot = slot;
             }else
             {
                 Q_ASSERT( v->d_n == 1 );
-                vars << Interval(v->d_from,v->d_to,v);
+                vars << JitComposer::Interval(v->d_from,v->d_to,v);
             }
         }
     }
 
     // allocate the scalars
-    if( !allocateWithLinearScan( pool, vars, 1 ) )
+    if( !JitComposer::allocateWithLinearScan( pool, vars, 1 ) )
          return error( me->d_name, tr("function requires more slots of length 1 than supported") );
     for( int i = 0; i < vars.size(); i++ )
         static_cast<Var*>(vars[i].d_payload)->d_slot = vars[i].d_slot;
@@ -1579,13 +1489,13 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         foreach( Var* h, i.value() )
         {
             QPair<int,int> ft = h->bounds();
-            vars << Interval(ft.first,ft.second,h);
+            vars << JitComposer::Interval(ft.first,ft.second,h);
         }
         if( i.key().second > 4 && vars.size() == 1 && i != --headersByN.end() )
             qWarning() << "TODO: quantize array lenghts >=" << i.key();
 
         // allocate the scalars
-        if( !allocateWithLinearScan( pool, vars, i.key().second ) )
+        if( !JitComposer::allocateWithLinearScan( pool, vars, i.key().second ) )
              return error( me->d_name, tr("function requires more slots of length %1 than supported").arg(i.key().second) );
         // printPool(pool,all.size());
         for( int j = 0; j < vars.size(); j++ )
@@ -1858,7 +1768,7 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
         else if( JitBytecode::isNumber(v) )
         {
             const qint32 slot = v.toInt();
-            if( slot < 0 || slot > LJ_MAX_SLOTS )
+            if( slot < 0 || slot > JitComposer::MAX_SLOTS )
                 return -1;
             return slot;
         }

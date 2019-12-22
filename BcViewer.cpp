@@ -133,7 +133,7 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
     fi->setText(1,QString::number(f.d_id));
     fi->setFont(0,bold);
     fi->setText(2,QString::number(f.d_firstline));
-    fi->setText(3,QString::number(f.d_firstline+f.d_numline));
+    fi->setText(3,QString::number(f.d_firstline+f.d_numline-1));
     if( f.d_flags & 0x02 )
         fi->setText(4,QString("%1+varg").arg(f.d_numparams));
     else
@@ -175,7 +175,7 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
                 ci = new QTreeWidgetItem(t,LnrType);
                 ci->setText(0,tr("function %1").arg(fp->d_id));
                 ci->setText(2,QString::number(fp->d_firstline));
-                ci->setText(3,QString::number(fp->d_firstline+fp->d_numline));
+                ci->setText(3,QString::number(fp->d_firstline+fp->d_numline-1));
 #else
                 ci = addFunc(fp,t);
 #endif

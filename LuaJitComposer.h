@@ -47,6 +47,17 @@ namespace Lua
         };
         typedef QVector<VarName> VarNameList;
 
+        enum { MAX_SLOTS = 250 };
+        struct Interval
+        {
+            uint d_from : 24;
+            uint d_slot : 8;
+            quint32 d_to;
+            void* d_payload;
+            Interval(uint from, uint to, void* pl):d_from(from),d_to(to),d_payload(pl),d_slot(0){}
+        };
+        typedef QList<Interval> Intervals;
+
         explicit JitComposer(QObject *parent = 0);
 
         void clear();
@@ -65,6 +76,8 @@ namespace Lua
         bool write(QIODevice* out, const QString& path = QString() );
         bool write( const QString& file );
 
+        static bool allocateWithLinearScan(QBitArray& pool, Intervals& vars, int len );
+        static int nextFreeSlot( QBitArray& pool, int len = 1 );
     protected:
         JitBytecode d_bc;
 
