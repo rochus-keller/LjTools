@@ -30,11 +30,40 @@ namespace Ljas
     class Disasm
     {
     public:
+        enum OP {
+            INVALID,
+            ISLT, ISGE, ISLE, ISGT,
+            ISEQ, ISNE,
+            ISTC, ISFC, IST, ISF,
+            MOV,
+            NOT, UNM,
+            LEN, ADD, SUB, MUL, DIV, MOD,
+            POW,
+            CAT,
+            KSET, KNIL,
+            UGET, USET,
+            UCLO,
+            FNEW,
+            TNEW, TDUP,
+            GGET, GSET,
+            TGET, TSET,
+            CALL, CALLT, RET,
+            FORI, FORL,
+            LOOP,
+            JMP
+        };
+
+        static const char* s_opName[];
+        static const char* s_opHelp[];
+
         static bool disassemble(const Lua::JitBytecode&, QIODevice*, const QString& path = QString(),
                                 bool stripped = false, bool alloc = false );
+        static bool adaptToLjasm(Lua::JitBytecode::Instruction& bc, OP& op, QByteArray& warning);
+        static bool adaptToLjasm(Lua::JitBytecode::Instruction& bc, QByteArray& mnemonic, QByteArray& warning);
+        static QByteArray renderArg(const Lua::JitBytecode::Function* f, int type, int value, int pc,
+                                    bool stripped = false, bool alt = false);
     protected:
         static bool writeFunc( QTextStream& out, const Lua::JitBytecode::Function*, bool stripped, bool alloc, int indent = 0 );
-        static QByteArray renderArg(const Lua::JitBytecode::Function* f, int t, int v, int pc, bool stripped );
     private:
         Disasm();
 

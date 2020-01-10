@@ -23,7 +23,7 @@
 #include <QBitArray>
 using namespace Lua;
 
-JitComposer::JitComposer(QObject *parent) : QObject(parent)
+JitComposer::JitComposer(QObject *parent) : QObject(parent),d_hasDebugInfo(false),d_stripped(false)
 {
 
 }
@@ -31,6 +31,7 @@ JitComposer::JitComposer(QObject *parent) : QObject(parent)
 void JitComposer::clear()
 {
     d_bc.clear();
+    d_hasDebugInfo = false;
 }
 
 int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, int firstLine, int lastLine)
@@ -38,9 +39,34 @@ int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, int 
     if( d_bc.d_funcs.isEmpty() )
         d_bc.d_name = sourceRef;
     JitBytecode::FuncRef f(new Func());
+    if( d_bc.d_fstack.isEmpty() )
+    {
+        if( firstLine <= 0 || lastLine <= 0 )
+            d_hasDebugInfo = false;
+        else
+            d_hasDebugInfo = true;
+    }else
+    {
+        if( firstLine <= 0 || lastLine <= 0 )
+        {
+            if( d_hasDebugInfo )
+                qWarning() << "JitComposer::openFunction: expecting debug information";
+        }else
+        {
+            if( !d_hasDebugInfo )
+                qWarning() << "JitComposer::openFunction: not expecting debug information";
+        }
+    }
     f->d_sourceFile = sourceRef;
-    f->d_firstline = firstLine;
-    f->d_numline = lastLine - firstLine + 1;
+    if( d_hasDebugInfo )
+    {
+        f->d_firstline = firstLine;
+        f->d_numline = lastLine - firstLine + 1;
+    }else
+    {
+        f->d_firstline = 0;
+        f->d_numline = 1;
+    }
     f->d_numparams = parCount;
     const int slot = getConstSlot(QVariant::fromValue(f));
     d_bc.d_fstack.push_back( f );
@@ -82,9 +108,18 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, i
     {
         bc |= cd << 16;
     }
+    if( line >= 0 )
+    {
+        if( d_hasDebugInfo )
+            d_bc.d_fstack.back()->d_lines.append(line);
+        else
+            qWarning() << "JitComposer::addOpImp: not expecting line number";
+    }else if( d_hasDebugInfo )
+    {
+        qWarning() << "JitComposer::addOpImp: expecting line number";
+        d_bc.d_fstack.back()->d_lines.append(0);
+    }
     d_bc.d_fstack.back()->d_byteCodes.append(bc);
-    if( line > 0 )
-        d_bc.d_fstack.back()->d_lines.append(line);
     return true;
 }
 
@@ -98,10 +133,408 @@ bool JitComposer::addAd(JitBytecode::Op op, quint8 a, quint16 d, int line)
     return addOpImp( op, a, 0, d, line );
 }
 
+int JitComposer::getCurPc() const
+{
+    if( d_bc.d_fstack.isEmpty() )
+        return -1;
+    return d_bc.d_fstack.back()->d_byteCodes.size() - 1;
+}
+
+bool JitComposer::patch(quint32 pc, qint16 off)
+{
+    if( pc >= d_bc.d_fstack.back()->d_byteCodes.size() )
+        return false;
+
+    quint32& bc = d_bc.d_fstack.back()->d_byteCodes[pc];
+    switch( JitBytecode::opFromBc(bc) )
+    {
+    case JitBytecode::OP_FORI:
+    case JitBytecode::OP_FORL:
+    case JitBytecode::OP_JMP:
+    case JitBytecode::OP_LOOP:
+    case JitBytecode::OP_UCLO:
+        bc &= 0x0000ffff;
+        bc |= quint16( off + JitBytecode::Instruction::JumpBias ) << 16;
+        return true;
+    }
+    return false;
+}
+
+bool JitComposer::ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+{
+    if( JitBytecode::isNumber(lhs) )
+        return addAbc(JitBytecode::OP_ADDNV, dst, rhs, getConstSlot(lhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+{
+    if( JitBytecode::isNumber(rhs) )
+        return addAbc(JitBytecode::OP_ADDVN, dst, lhs, getConstSlot(rhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::ADD(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAbc(JitBytecode::OP_ADDVV, dst, lhs, rhs, line );
+}
+
+bool JitComposer::SUB(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+{
+    if( JitBytecode::isNumber(lhs) )
+        return addAbc(JitBytecode::OP_SUBNV, dst, rhs, getConstSlot(lhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::SUB(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+{
+    if( JitBytecode::isNumber(rhs) )
+        return addAbc(JitBytecode::OP_SUBVN, dst, lhs, getConstSlot(rhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::SUB(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAbc(JitBytecode::OP_SUBVV, dst, lhs, rhs, line );
+}
+
+bool JitComposer::TDUP(SlotNr dst, const QVariant& constTable, int line )
+{
+    if( constTable.canConvert<JitBytecode::ConstTable>() )
+        return addAd(JitBytecode::OP_TDUP, dst, getConstSlot(constTable), line );
+    else
+        return false;
+}
+
+bool JitComposer::TGET(SlotNr to, SlotNr table, quint8 index, int line)
+{
+    return addAbc(JitBytecode::OP_TGETV, to, table, index, line );
+}
+
+bool JitComposer::TGET(SlotNr to, SlotNr table, const QVariant& index, int line)
+{
+    if( JitBytecode::isString(index)  )
+        return addAbc(JitBytecode::OP_TGETS, to, table, getConstSlot(index), line );
+    else if( JitBytecode::isNumber(index) && index.toUInt() <= UCHAR_MAX )
+        return addAbc(JitBytecode::OP_TGETB, to, table, index.toUInt(), line );
+    else
+        return false;
+}
+
+bool JitComposer::MUL(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+{
+    if( JitBytecode::isNumber(lhs) )
+        return addAbc(JitBytecode::OP_MULNV, dst, rhs, getConstSlot(lhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::MUL(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+{
+    if( JitBytecode::isNumber(rhs) )
+        return addAbc(JitBytecode::OP_MULVN, dst, lhs, getConstSlot(rhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::MUL(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAbc(JitBytecode::OP_MULVV, dst, lhs, rhs, line );
+}
+
+bool JitComposer::DIV(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+{
+    if( JitBytecode::isNumber(lhs) )
+        return addAbc(JitBytecode::OP_DIVNV, dst, rhs, getConstSlot(lhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::DIV(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+{
+    if( JitBytecode::isNumber(rhs) )
+        return addAbc(JitBytecode::OP_DIVVN, dst, lhs, getConstSlot(rhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::DIV(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAbc(JitBytecode::OP_DIVVV, dst, lhs, rhs, line );
+}
+
+bool JitComposer::FNEW(SlotNr dst, quint16 func, int line)
+{
+    return addAd(JitBytecode::OP_FNEW, dst, func, line );
+}
+
+bool JitComposer::FORI(SlotNr base, Jump offset, int line)
+{
+    return addAd(JitBytecode::OP_FORI, base, quint16( offset + JitBytecode::Instruction::JumpBias ), line );
+}
+
+bool JitComposer::FORL(SlotNr base, Jump offset, int line)
+{
+    return addAd(JitBytecode::OP_FORL, base, quint16( offset + JitBytecode::Instruction::JumpBias ), line );
+}
+
+bool JitComposer::MOD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+{
+    if( JitBytecode::isNumber(lhs) )
+        return addAbc(JitBytecode::OP_MODNV, dst, rhs, getConstSlot(lhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::MOD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+{
+    if( JitBytecode::isNumber(rhs) )
+        return addAbc(JitBytecode::OP_MODVN, dst, lhs, getConstSlot(rhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::MOD(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAbc(JitBytecode::OP_MODVV, dst, lhs, rhs, line );
+}
+
+bool JitComposer::CALL(SlotNr slot, quint8 numOfReturns, quint8 numOfArgs, int line)
+{
+    // Operand C is one plus the number of fixed arguments.
+    // Operand B is one plus the number of return values (MULTRES is not supported)
+    return addAbc(JitBytecode::OP_CALL, slot, numOfReturns + 1, numOfArgs + 1, line );
+}
+
+bool JitComposer::CALLT(SlotNr slot, quint8 numOfArgs, int line)
+{
+    return addAd(JitBytecode::OP_CALLT, slot, numOfArgs + 1, line );
+}
+
+bool JitComposer::CAT(SlotNr dst, SlotNr from, SlotNr to, int line)
+{
+    return addAbc(JitBytecode::OP_CAT, dst, from, to, line );
+}
+
+bool JitComposer::KSET(SlotNr dst, const QVariant& v, int line )
+{
+    if( JitBytecode::isString( v ) )
+        return addAd(JitBytecode::OP_KSTR, dst, getConstSlot(v), line );
+    else if( JitBytecode::isPrimitive( v ) )
+        return addAd(JitBytecode::OP_KPRI, dst, JitBytecode::toPrimitive(v), line );
+    else if( JitBytecode::isNumber( v ) )
+    {
+        if( v.type() == QVariant::Double )
+            return addAd(JitBytecode::OP_KNUM, dst, getConstSlot(v), line );
+        else
+        {
+            if( v.toInt() >= SHRT_MIN && v.toInt() <= SHRT_MAX )
+                return addAd(JitBytecode::OP_KSHORT, dst, (quint16)v.toInt(), line );
+            else
+                return addAd(JitBytecode::OP_KNUM, dst, getConstSlot(v), line );
+        }
+    }else if( v.canConvert<JitBytecode::ConstTable>() )
+        return addAd(JitBytecode::OP_KCDATA, dst, getConstSlot(v), line );
+
+    return false;
+}
+
+bool JitComposer::LEN(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_LEN, lhs, rhs, line );
+}
+
+bool JitComposer::LOOP(SlotNr base, Jump offset, int line)
+{
+    return addAd(JitBytecode::OP_LOOP, base, (quint16)offset, line );
+}
+
+bool JitComposer::MOV(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_MOV, lhs, rhs, line );
+}
+
+bool JitComposer::NOT(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_NOT, lhs, rhs, line );
+}
+
+bool JitComposer::POW(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_POW, lhs, rhs, line );
+}
+
+bool JitComposer::RET(SlotNr slot, quint8 len, int line)
+{
+    // Operand D is one plus the number of results to return.
+    if( slot < 0 )
+        return addAd(JitBytecode::OP_RET0, 0, 1, line );
+    else if( len == 1 )
+        return addAd(JitBytecode::OP_RET1, slot, 2, line );
+    else
+        return addAd(JitBytecode::OP_RET, slot, len + 1, line );
+}
+
+bool JitComposer::RET(int line)
+{
+    return addAd(JitBytecode::OP_RET0, 0, 1, line );
+}
+
+bool JitComposer::TNEW(SlotNr slot, quint16 arrSize, quint8 hashSize, int line)
+{
+    return addAd(JitBytecode::OP_TNEW, slot, arrSize + ( hashSize << 11 ), line );
+}
+
+bool JitComposer::TSET(SlotNr value, SlotNr table, quint8 index, int line)
+{
+    return addAbc(JitBytecode::OP_TSETV, value, table, index, line );
+}
+
+bool JitComposer::TSET(SlotNr value, SlotNr table, const QVariant& index, int line)
+{
+    if( JitBytecode::isString(index)  )
+        return addAbc(JitBytecode::OP_TSETS, value, table, getConstSlot(index), line );
+    else if( JitBytecode::isNumber(index) && index.toUInt() <= UCHAR_MAX )
+        return addAbc(JitBytecode::OP_TSETB, value, table, index.toUInt(), line );
+    else
+        return false;
+}
+
+bool JitComposer::UCLO(SlotNr slot, Jump offset, int line)
+{
+    return addAd(JitBytecode::OP_UCLO, slot, quint16(offset+JitBytecode::Instruction::JumpBias), line );
+}
+
+bool JitComposer::UGET(SlotNr toSlot, UvNr fromUv, int line)
+{
+    return addAd(JitBytecode::OP_UGET, toSlot, fromUv, line );
+}
+
+bool JitComposer::USET(UvNr toUv, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_USETV, toUv, rhs, line );
+}
+
+bool JitComposer::USET(UvNr toUv, const QVariant& rhs, int line)
+{
+    if( JitBytecode::isString(rhs) )
+        return addAd(JitBytecode::OP_USETS, toUv, getConstSlot(rhs), line );
+    else if( JitBytecode::isNumber(rhs) )
+        return addAd(JitBytecode::OP_USETN, toUv, getConstSlot(rhs), line );
+    else if( JitBytecode::isPrimitive(rhs) )
+        return addAd(JitBytecode::OP_USETP, toUv, JitBytecode::toPrimitive(rhs), line );
+    return false;
+}
+
+bool JitComposer::UNM(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_UNM, lhs, rhs, line );
+}
+
+bool JitComposer::GGET(SlotNr to, const QByteArray& name, int line)
+{
+    return addAd(JitBytecode::OP_GGET, to, getConstSlot(name), line );
+}
+
+bool JitComposer::GSET(SlotNr value, const QByteArray& name, int line)
+{
+    return addAd(JitBytecode::OP_GSET, value, getConstSlot(QVariant::fromValue(name)), line );
+}
+
+bool JitComposer::ISGE(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_ISGE, lhs, rhs, line );
+}
+
+bool JitComposer::ISGT(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_ISGT, lhs, rhs, line );
+}
+
+bool JitComposer::ISLE(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_ISLE, lhs, rhs, line );
+}
+
+bool JitComposer::ISLT(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_ISLT, lhs, rhs, line );
+}
+
+bool JitComposer::ISEQ(SlotNr lhs, const QVariant& rhs, int line)
+{
+    if( JitBytecode::isNumber(rhs) )
+        return addAd(JitBytecode::OP_ISEQN, lhs, getConstSlot(rhs), line );
+    else if( JitBytecode::isString(rhs) )
+        return addAd(JitBytecode::OP_ISEQS, lhs, getConstSlot(rhs), line );
+    else if( JitBytecode::isPrimitive(rhs) )
+        return addAd(JitBytecode::OP_ISEQP, lhs, JitBytecode::toPrimitive(rhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::ISEQ(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_ISEQV, lhs, rhs, line );
+}
+
+bool JitComposer::ISNE(SlotNr lhs, const QVariant& rhs, int line)
+{
+    if( JitBytecode::isNumber(rhs) )
+        return addAd(JitBytecode::OP_ISNEN, lhs, getConstSlot(rhs), line );
+    else if( JitBytecode::isString(rhs) )
+        return addAd(JitBytecode::OP_ISNES, lhs, getConstSlot(rhs), line );
+    else if( JitBytecode::isPrimitive(rhs) )
+        return addAd(JitBytecode::OP_ISNEP, lhs, JitBytecode::toPrimitive(rhs), line );
+    else
+        return false;
+}
+
+bool JitComposer::ISNE(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_ISNEV, lhs, rhs, line );
+}
+
+bool JitComposer::ISF(SlotNr slot, int line)
+{
+    return addAd(JitBytecode::OP_ISF, 0, slot, line );
+}
+
+bool JitComposer::ISFC(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_ISFC, lhs, rhs, line );
+}
+
+bool JitComposer::IST(SlotNr slot, int line)
+{
+    return addAd(JitBytecode::OP_IST, 0, slot, line );
+}
+
+bool JitComposer::ISTC(SlotNr lhs, SlotNr rhs, int line)
+{
+    return addAd(JitBytecode::OP_ISTC, lhs, rhs, line );
+}
+
+bool JitComposer::JMP(SlotNr base, Jump offset, int line)
+{
+    return addAd(JitBytecode::OP_JMP, base, quint16(offset + JitBytecode::Instruction::JumpBias), line );
+}
+
+bool JitComposer::KNIL(SlotNr base, quint8 len, int line )
+{
+    return addAd(JitBytecode::OP_KNIL, base, base + len - 1, line );
+}
+
 void JitComposer::setUpvals(const JitComposer::UpvalList& l)
 {
     if( d_bc.d_fstack.isEmpty() )
         return;
+    if( !d_hasDebugInfo )
+        qWarning() << "JitComposer::setUpvals: not expecting debug info";
     Func* f = static_cast<Func*>( d_bc.d_fstack.back().data() );
     foreach( const Upval& uv, l )
     {
@@ -120,6 +553,8 @@ void JitComposer::setVarNames(const JitComposer::VarNameList& l)
 {
     if( d_bc.d_fstack.isEmpty() )
         return;
+    if( !d_hasDebugInfo )
+        qWarning() << "JitComposer::setUpvals: not expecting debug info";
     Func* f = static_cast<Func*>( d_bc.d_fstack.back().data() );
     foreach( const VarName& vn, l )
     {
@@ -175,6 +610,7 @@ bool JitComposer::write(QIODevice* out, const QString& path)
         return false;
     if( d_bc.d_fstack.isEmpty() )
         d_bc.d_fstack.push_back( d_bc.d_funcs.first() );
+    d_bc.setStripped( d_stripped || !d_hasDebugInfo );
     return d_bc.write(out,path);
 }
 
@@ -184,7 +620,13 @@ bool JitComposer::write(const QString& file)
         return false;
     if( d_bc.d_fstack.isEmpty() )
         d_bc.d_fstack.push_back( d_bc.d_funcs.first() );
+    d_bc.setStripped( d_stripped || !d_hasDebugInfo );
     return d_bc.write(file);
+}
+
+void JitComposer::setStripped(bool on)
+{
+    d_stripped = on;
 }
 
 static bool sortIntervals( const JitComposer::Interval& lhs, const JitComposer::Interval& rhs )
@@ -192,38 +634,45 @@ static bool sortIntervals( const JitComposer::Interval& lhs, const JitComposer::
     return lhs.d_from < rhs.d_from;
 }
 
-static int checkFree( const QBitArray& pool, int slot, int len )
+static int checkFree( const JitComposer::SlotPool& pool, int slot, int len )
 {
     if( slot + len >= pool.size() )
         return 0;
     for( int i = 0; i < len ; i++ )
     {
-        if( pool.at(slot+i) )
+        if( pool.test(slot+i) )
             return i;
     }
     return len;
 }
 
-int JitComposer::nextFreeSlot( QBitArray& pool, int len )
+static inline void fill( JitComposer::SlotPool& pool, bool val, int from, int to )
+{
+    // Sets bits at index positions begin up to (but not including) end to value.
+    for( int i = from; i < to; i++ )
+        pool.set(i,val);
+}
+
+int JitComposer::nextFreeSlot(SlotPool& pool, int len )
 {
     int slot = 0;
     while( true )
     {
         // skip used
-        while( slot < pool.size() && pool.at(slot) )
+        while( slot < pool.size() && pool.test(slot) )
             slot++;
         if( slot < pool.size() )
         {
-            Q_ASSERT( !pool.at(slot) );
+            Q_ASSERT( !pool.test(slot) );
             if( len == 1 )
             {
-                pool.setBit(slot);
+                pool.set(slot);
                 return slot;
             } // else
             const int free = checkFree( pool, slot, len );
             if( free == len )
             {
-                pool.fill(true,slot,slot+len);
+                fill(pool,true,slot,slot+len);
                 return slot;
             } // else
             slot += free;
@@ -232,7 +681,26 @@ int JitComposer::nextFreeSlot( QBitArray& pool, int len )
     return -1;
 }
 
-bool JitComposer::allocateWithLinearScan(QBitArray& pool, JitComposer::Intervals& vars, int len)
+bool JitComposer::releaseSlot(JitComposer::SlotPool& pool, quint8 slot, int len)
+{
+    for( int i = slot; i < slot + len; i++ )
+    {
+        if( !pool.test(i) )
+            return false;
+        pool.set(i,false);
+    }
+    return true;
+}
+
+int JitComposer::highestUsedSlot(const JitComposer::SlotPool& pool)
+{
+    for( int i = pool.size() - 1; i >= 0; i-- )
+        if( pool.test(i) )
+            return i;
+    return -1;
+}
+
+bool JitComposer::allocateWithLinearScan(SlotPool& pool, JitComposer::Intervals& vars, int len)
 {
     // according to Poletto & Sarkar (1999): Linear scan register allocation, ACM TOPLAS, Volume 21 Issue 5
 
@@ -251,8 +719,8 @@ bool JitComposer::allocateWithLinearScan(QBitArray& pool, JitComposer::Intervals
             {
                 break;
             }
-            pool.clearBit(vars[j.value()].d_slot);
-            pool.fill(false, vars[j.value()].d_slot, vars[j.value()].d_slot + len );
+            pool.set(vars[j.value()].d_slot,false);
+            fill(pool,false, vars[j.value()].d_slot, vars[j.value()].d_slot + len );
             j = active.erase(j);
         }
         int slot = nextFreeSlot(pool,len);
@@ -263,4 +731,3 @@ bool JitComposer::allocateWithLinearScan(QBitArray& pool, JitComposer::Intervals
     }
     return true;
 }
-

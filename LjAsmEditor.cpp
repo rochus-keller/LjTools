@@ -298,7 +298,20 @@ AsmEditor::~AsmEditor()
 
 void AsmEditor::loadFile(const QString& path)
 {
-    d_edit->loadFromFile(path);
+    if( path.endsWith(".ljasm",Qt::CaseInsensitive ) )
+        d_edit->loadFromFile(path);
+    else
+    {
+        Lua::JitBytecode bc;
+        bc.parse(path);
+
+        QBuffer buf;
+        buf.open(QIODevice::WriteOnly);
+        Ljas::Disasm::disassemble( bc, &buf, path, d_importStrip, d_importAlloc );
+        buf.close();
+        d_edit->setPlainText(buf.buffer());
+
+    }
     QDir::setCurrent(QFileInfo(path).absolutePath());
     onCaption();
 
@@ -748,7 +761,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjAsmEditor");
-    a.setApplicationVersion("0.5.2");
+    a.setApplicationVersion("0.5.3");
     a.setStyle("Fusion");
 
     Lua::AsmEditor w;

@@ -671,7 +671,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         Q_ASSERT( s.d_vals.size() == 3 );
         if( JitBytecode::isNumber(s.d_vals[1]) && s.d_vals[2].canConvert<Named*>() )
         {
-            switch( st->d_tok.d_type )
+            switch( st->d_tok.d_type ) // A = C op B
             {
             case SynTree::R_ADD_:
                 s.d_op = JitBytecode::OP_ADDNV;
@@ -689,9 +689,10 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                 s.d_op = JitBytecode::OP_MODNV;
                 break;
             }
+            qSwap( s.d_vals[1], s.d_vals[2] );
         }else if( s.d_vals[1].canConvert<Named*>() && JitBytecode::isNumber(s.d_vals[2]) )
         {
-            switch( st->d_tok.d_type )
+            switch( st->d_tok.d_type ) // A = B op C
             {
             case SynTree::R_ADD_:
                 s.d_op = JitBytecode::OP_ADDVN;
@@ -711,7 +712,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             }
         }else if( s.d_vals[1].canConvert<Named*>() && s.d_vals[2].canConvert<Named*>() )
         {
-            switch( st->d_tok.d_type )
+            switch( st->d_tok.d_type ) // A = B op C
             {
             case SynTree::R_ADD_:
                 s.d_op = JitBytecode::OP_ADDVV;
@@ -956,7 +957,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             s.d_op = st->d_tok.d_type == SynTree::R_TGET_ ? JitBytecode::OP_TGETV : JitBytecode::OP_TSETV;
         else if( JitBytecode::isString( s.d_vals.last() ) )
             s.d_op = st->d_tok.d_type == SynTree::R_TGET_ ? JitBytecode::OP_TGETS : JitBytecode::OP_TSETS;
-        else if( JitBytecode::isNumber( s.d_vals.last() ) && s.d_vals.last().toInt() <= USHRT_MAX )
+        else if( JitBytecode::isNumber( s.d_vals.last() ) && s.d_vals.last().toInt() <= UCHAR_MAX )
             s.d_op = st->d_tok.d_type == SynTree::R_TGET_ ? JitBytecode::OP_TGETB : JitBytecode::OP_TSETB;
         else
             return error(st->d_children[2],tr("argument 3 has not supported type") );
@@ -1355,9 +1356,9 @@ static void printPool( const QBitArray& pool, int len )
 bool Assembler::allocateRegisters3(Assembler::Func* me)
 {
     // prepare slot pool and enter all params (which are fix allocated)
-    QBitArray pool(JitComposer::MAX_SLOTS);
+    JitComposer::SlotPool pool;
     for( int i = 0; i < me->d_params.size(); i++ )
-        pool.setBit(i);
+        pool.set(i);
 
     // collect all pending registers which are part of an array
     QSet<Var*> arrays;
@@ -1369,7 +1370,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         if( v && !v->isUnused() )
             all << v;
         if( v && v->d_n == 1 && !v->isUnused() && !v->isFixed() && v->d_slotPreset )
-            pool.setBit( v->d_slot );
+            pool.set( v->d_slot );
 
         if( v && v->d_n > 1 && !v->isUnused() && !v->isFixed() )
         {
@@ -1515,7 +1516,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
     int frameSize;
     for( frameSize = pool.size() - 1; frameSize >= 0; frameSize-- )
     {
-        if( pool.at(frameSize) )
+        if( pool.test(frameSize) )
             break;
     }
     frameSize++;
@@ -1782,20 +1783,10 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
             return d_comp.getConstSlot(v);
         break;
     case JitBytecode::Instruction::_pri:
-        if( v.isNull() )
-            return 0;
-        else if( v.type() == QVariant::Bool )
-        {
-            if( v.toBool() )
-                return 2;
-            else
-                return 1;
-        }
-        break;
+        return JitBytecode::toPrimitive(v);
     case JitBytecode::Instruction::_cdata:
         return d_comp.getConstSlot(v); // TODO negate
     case JitBytecode::Instruction::_lit:
-    case JitBytecode::Instruction::_jump:
         if( JitBytecode::isNumber(v) )
         {
             qint32 i = v.toInt();
@@ -1804,6 +1795,7 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
         }
         break;
     case JitBytecode::Instruction::_lits:
+    case JitBytecode::Instruction::_jump:
         if( JitBytecode::isNumber(v) )
         {
             qint32 i = v.toInt();

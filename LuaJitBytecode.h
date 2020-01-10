@@ -152,9 +152,11 @@ namespace Lua
         const QList<FuncRef>& getFuncs() const { return d_funcs; }
         Function* getRoot() const;
         bool isStripped() const;
+        void calcVarNames();
         void clear();
 
         static Instruction dissectInstruction(quint32);
+        static Op opFromBc(quint32);
         enum Format { ABC, AD };
         static Format formatFromOp(quint8);
         static Instruction::FieldType typeCdFromOp(quint8);
@@ -163,6 +165,7 @@ namespace Lua
         static bool isNumber( const QVariant& );
         static bool isString( const QVariant& );
         static bool isPrimitive( const QVariant& );
+        static quint8 toPrimitive( const QVariant& );
         static const char* nameOfOp(int op );
     protected:
         bool parseHeader(QIODevice* );
@@ -174,6 +177,7 @@ namespace Lua
         bool writeObjConsts(QIODevice*, const VariantList& );
         bool writeByteCodes(QIODevice*, const CodeList& );
         bool error( const QString& );
+        void setStripped(bool);
         VariantList readObjConsts( Function* f, QIODevice* in, quint32 len );
     private:
         friend class JitComposer;

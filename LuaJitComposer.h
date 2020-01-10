@@ -22,6 +22,7 @@
 
 #include <QObject>
 #include <LjTools/LuaJitBytecode.h>
+#include <bitset>
 
 namespace Lua
 {
@@ -57,6 +58,10 @@ namespace Lua
             Interval(uint from, uint to, void* pl):d_from(from),d_to(to),d_payload(pl),d_slot(0){}
         };
         typedef QList<Interval> Intervals;
+        typedef std::bitset<MAX_SLOTS> SlotPool;
+        typedef quint8 SlotNr;
+        typedef quint8 UvNr;
+        typedef qint16 Jump;
 
         explicit JitComposer(QObject *parent = 0);
 
@@ -67,6 +72,66 @@ namespace Lua
 
         bool addAbc( JitBytecode::Op, quint8 a, quint8 b, quint8 c, int line = -1 );
         bool addAd(JitBytecode::Op, quint8 a, quint16 d, int line = -1 );
+        int getCurPc() const;
+        bool patch( quint32 pc, qint16 off );
+
+        bool ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
+        bool ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
+        bool ADD(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool CALL(SlotNr slot, quint8 numOfReturns = 0, quint8 numOfArgs = 0, int line = -1 );
+        bool CALLT(SlotNr slot, quint8 numOfArgs = 0, int line = -1 );
+        bool CAT(SlotNr dst, SlotNr from, SlotNr to, int line = -1 );
+        bool DIV(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
+        bool DIV(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
+        bool DIV(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool FNEW(SlotNr dst, quint16 func, int line = -1 );
+        bool FORI(SlotNr base, Jump offset, int line = -1 );
+        bool FORL(SlotNr base, Jump offset, int line = -1 );
+        bool GGET(SlotNr to, const QByteArray& name, int line  = -1 );
+        bool GSET(SlotNr value, const QByteArray& name, int line  = -1 );
+        bool ISGE(SlotNr lhs, SlotNr rhs, int line = -1 ); // lhs >= rhs
+        bool ISGT(SlotNr lhs, SlotNr rhs, int line = -1 ); // lhs > rhs
+        bool ISLE(SlotNr lhs, SlotNr rhs, int line = -1 ); // lhs <= rhs
+        bool ISLT(SlotNr lhs, SlotNr rhs, int line = -1 ); // lhs < rhs
+        bool ISEQ(SlotNr lhs, const QVariant& rhs, int line = -1 ); // lhs == rhs
+        bool ISEQ(SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool ISNE(SlotNr lhs, const QVariant& rhs, int line = -1 ); // lhs != rhs
+        bool ISNE(SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool ISF(SlotNr slot, int line = -1 );
+        bool ISFC(SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool IST(SlotNr slot, int line = -1 );
+        bool ISTC(SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool JMP(SlotNr base, Jump offset, int line = -1 );
+        bool KNIL(SlotNr base, quint8 len = 1, int line = -1 );
+        bool KSET(SlotNr dst, const QVariant& , int line = -1 );
+        bool LEN(SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool LOOP(SlotNr base, Jump offset, int line = -1 );
+        bool MOD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
+        bool MOD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
+        bool MOD(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool MOV(SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool MUL(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
+        bool MUL(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
+        bool MUL(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool NOT(SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool POW(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool RET(SlotNr slot, quint8 len, int line = -1 );
+        bool RET(int line = -1 );
+        bool SUB(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
+        bool SUB(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
+        bool SUB(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool TDUP(SlotNr dst, const QVariant& constTable, int line = -1 );
+        bool TGET(SlotNr to, SlotNr table, quint8 index, int line = -1 );
+        bool TGET(SlotNr to, SlotNr table, const QVariant&  index, int line = -1 );
+        bool TNEW(SlotNr slot, quint16 arrSize = 0, quint8 hashSize = 0, int line = -1 );
+        bool TSET(SlotNr value, SlotNr table, quint8 index, int line = -1 );
+        bool TSET(SlotNr value, SlotNr table, const QVariant&  index, int line = -1 );
+        bool UCLO(SlotNr slot, Jump offset, int line = -1 );
+        bool UGET(SlotNr toSlot, UvNr fromUv, int line = -1 );
+        bool USET(UvNr toUv, SlotNr rhs, int line = -1 );
+        bool USET(UvNr toUv, const QVariant& rhs, int line = -1 );
+        bool UNM(SlotNr lhs, SlotNr rhs, int line = -1 );
+
         void setUpvals( const UpvalList& );
         void setVarNames( const VarNameList& );
 
@@ -75,11 +140,16 @@ namespace Lua
 
         bool write(QIODevice* out, const QString& path = QString() );
         bool write( const QString& file );
+        void setStripped(bool);
 
-        static bool allocateWithLinearScan(QBitArray& pool, Intervals& vars, int len );
-        static int nextFreeSlot( QBitArray& pool, int len = 1 );
+        static bool allocateWithLinearScan(SlotPool& pool, Intervals& vars, int len = 1 );
+        static int nextFreeSlot( SlotPool& pool, int len = 1 );
+        static bool releaseSlot( SlotPool& pool, quint8 slot, int len = 1 );
+        static int highestUsedSlot( const SlotPool& pool );
     protected:
         JitBytecode d_bc;
+        bool d_hasDebugInfo;
+        bool d_stripped;
 
         struct Func : public JitBytecode::Function
         {

@@ -427,7 +427,7 @@ static QByteArray readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& 
     quint32 lastpc = 0;
     while( true )
     {
-        if( tmp.isEmpty() || tmp[pos] == 0 )
+        if( tmp.size() <= pos || tmp[pos] == 0 )
             break;
         JitBytecode::Function::Var var;
         if( tmp[pos] > VARNAME__MAX )
@@ -522,6 +522,14 @@ bool JitBytecode::isStripped() const
     return d_flags & BCDUMP_F_STRIP;
 }
 
+void JitBytecode::calcVarNames()
+{
+    for( int i = 0; i < d_funcs.size(); i++ )
+    {
+        d_funcs[i]->calcVarNames();
+    }
+}
+
 void JitBytecode::clear()
 {
     d_funcs.clear();
@@ -554,6 +562,11 @@ JitBytecode::Instruction JitBytecode::dissectInstruction(quint32 i)
     }else
         res.d_name = "???";
     return res;
+}
+
+JitBytecode::Op JitBytecode::opFromBc(quint32 i)
+{
+    return (Op) bc_op(i);
 }
 
 JitBytecode::Format JitBytecode::formatFromOp(quint8 op)
@@ -756,7 +769,12 @@ QByteArray JitBytecode::writeDbgInfo(JitBytecode::Function* f)
     {
         // 1 byte per number
         for( int i = 0; i < f->d_lines.size(); i++ )
-            writeByte( &buf, f->d_lines[i] - f->d_firstline );
+        {
+            if( f->d_lines[i] == 0 )
+                writeByte( &buf, 0 );
+            else
+                writeByte( &buf, f->d_lines[i] - f->d_firstline );
+        }
     }else if( f->d_numline < 65536 )
     {
         // 2 bytes per number
@@ -981,6 +999,14 @@ bool JitBytecode::error(const QString& msg)
     return false;
 }
 
+void JitBytecode::setStripped(bool on)
+{
+    if( on )
+        d_flags = BCDUMP_F_STRIP;
+    else
+        d_flags = 0;
+}
+
 uint qHash(const QVariant& v, uint seed)
 {
     switch( v.type() )
@@ -1036,6 +1062,20 @@ bool JitBytecode::isString(const QVariant& v)
 bool JitBytecode::isPrimitive(const QVariant& v)
 {
     return v.type() == QVariant::Bool || v.isNull();
+}
+
+quint8 JitBytecode::toPrimitive(const QVariant& v)
+{
+    if( v.isNull() )
+        return 0;
+    else if( v.type() == QVariant::Bool )
+    {
+        if( v.toBool() )
+            return 2;
+        else
+            return 1;
+    }
+    return 0;
 }
 
 const char*JitBytecode::nameOfOp(int op)

@@ -17,7 +17,7 @@
 * http://www.gnu.org/copyleft/gpl.html.
 */
 
-#include "BcViewer.h"
+#include "BcViewer2.h"
 #include "LjDisasm.h"
 #include <QHeaderView>
 #include <QFile>
@@ -30,7 +30,7 @@ using namespace Lua;
 
 enum { LnrType = 10 };
 
-BcViewer::BcViewer(QWidget *parent) : QTreeWidget(parent)
+BcViewer2::BcViewer2(QWidget *parent) : QTreeWidget(parent)
 {
     setHeaderHidden(false);
     setAlternatingRowColors(true);
@@ -49,7 +49,7 @@ BcViewer::BcViewer(QWidget *parent) : QTreeWidget(parent)
     //connect(this,SIGNAL(itemSelectionChanged()),this,SLOT(onSelectionChanged()));
 }
 
-bool BcViewer::loadFrom(const QString& path)
+bool BcViewer2::loadFrom(const QString& path)
 {
     if( !d_bc.parse(path) )
         return false;
@@ -66,17 +66,18 @@ bool BcViewer::loadFrom(const QString& path)
     return true;
 }
 
-bool BcViewer::loadFrom(QIODevice* in, const QString& path)
+bool BcViewer2::loadFrom(QIODevice* in, const QString& path)
 {
     if( !d_bc.parse(in,path) )
         return false;
 
+    d_bc.calcVarNames();
     fillTree();
 
     return true;
 }
 
-void BcViewer::gotoLine(int lnr)
+void BcViewer2::gotoLine(int lnr)
 {
     QList<QTreeWidgetItem *> items = findItems( QString::number(lnr), Qt::MatchExactly | Qt::MatchRecursive, 2 );
     foreach( QTreeWidgetItem * i, items )
@@ -91,7 +92,7 @@ void BcViewer::gotoLine(int lnr)
     }
 }
 
-bool BcViewer::saveTo(const QString& path, bool stripped)
+bool BcViewer2::saveTo(const QString& path, bool stripped)
 {
     QFile f(path);
     if( !f.open(QIODevice::WriteOnly) )
@@ -102,18 +103,18 @@ bool BcViewer::saveTo(const QString& path, bool stripped)
     return Ljas::Disasm::disassemble( d_bc, &f, QString(), stripped );
 }
 
-void BcViewer::onDoubleClicked(QTreeWidgetItem* i, int)
+void BcViewer2::onDoubleClicked(QTreeWidgetItem* i, int)
 {
     if( i && i->type() == LnrType )
         emit sigGotoLine(i->text(2).toUInt());
 }
 
-void BcViewer::onSelectionChanged()
+void BcViewer2::onSelectionChanged()
 {
     onDoubleClicked(currentItem(),0);
 }
 
-QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetItem* p)
+QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidgetItem* p)
 {
     QFont bold = font();
     bold.setBold(true);
@@ -144,72 +145,6 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
     fi->setText(5,QString::number(f.d_framesize));
 
     QTreeWidgetItem* t;
-
-    if( false ) // f.d_flags )
-    {
-        t = new QTreeWidgetItem(fi);
-        QStringList str;
-        if( f.d_flags & 0x01 )
-            str << "subfuncs";
-        if( f.d_flags & 0x02 )
-            str << "varargs";
-        if( f.d_flags & 0x04 )
-            str << "uses ffi";
-        if( f.d_flags & 0x08 )
-            str << "no jit";
-        if( f.d_flags & 0x10 )
-            str << "patched";
-        t->setText(0,str.join(", "));
-    }
-
-
-    if( ! f.d_constObjs.isEmpty() )
-    {
-        t = new QTreeWidgetItem(fi);
-        t->setText(0,tr("Const GC"));
-        t->setFont(0,ul);
-        for( int j = 0; j < f.d_constObjs.size(); j++ )
-        {
-            QTreeWidgetItem* ci = 0;
-            if( f.d_constObjs[j].canConvert<JitBytecode::FuncRef>() )
-            {
-                JitBytecode::FuncRef fp = f.d_constObjs[j].value<JitBytecode::FuncRef>();
-#ifdef LINEAR
-                ci = new QTreeWidgetItem(t,LnrType);
-                ci->setText(0,tr("function %1").arg(fp->d_id));
-                if( !d_bc.isStripped() )
-                {
-                    ci->setText(2,QString::number(fp->d_firstline));
-                    ci->setText(3,QString::number(fp->d_firstline+fp->d_numline-1));
-                }
-#else
-                ci = addFunc(fp,t);
-#endif
-            }else if( f.d_constObjs[j].canConvert<JitBytecode::ConstTable>() )
-            {
-                ci = new QTreeWidgetItem(t);
-                ci->setText(0,tr("table"));
-            }else
-            {
-                ci = new QTreeWidgetItem(t);
-                ci->setText(0,QString("'%1'").arg(f.d_constObjs[j].toString()));
-            }
-            ci->setText(1,QString::number(j));
-        }
-    }
-
-    if( ! f.d_constNums.isEmpty() )
-    {
-        t = new QTreeWidgetItem(fi);
-        t->setText(0,tr("Const Number"));
-        t->setFont(0,ul);
-        for( int j = 0; j < f.d_constNums.size(); j++ )
-        {
-            QTreeWidgetItem* ci = new QTreeWidgetItem(t);
-            ci->setText(0,f.d_constNums[j].toString());
-            ci->setText(1,QString::number(j));
-        }
-    }
 
     if( ! f.d_upvals.isEmpty() )
     {
@@ -259,26 +194,29 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
         for( int j = 0; j < f.d_byteCodes.size(); j++ )
         {
             QTreeWidgetItem* ci = new QTreeWidgetItem(t,LnrType);
-            const JitBytecode::Instruction bc = JitBytecode::dissectInstruction(f.d_byteCodes[j]);
-            ci->setText(0,bc.d_name);
+            JitBytecode::Instruction bc = JitBytecode::dissectInstruction(f.d_byteCodes[j]);
+
+            QByteArray warning, mnemonic;
+            Ljas::Disasm::OP op;
+            Ljas::Disasm::adaptToLjasm(bc, op, warning );
+            mnemonic = Ljas::Disasm::s_opName[op];
+            ci->setText(0,mnemonic);
+            ci->setToolTip(0, Ljas::Disasm::s_opHelp[op]);
             ci->setText(1,QString::number(j));
             if( !f.d_lines.isEmpty() )
             {
                 Q_ASSERT( f.d_byteCodes.size() == f.d_lines.size() );
                 ci->setText(2,QString::number(f.d_lines[j]));
             }
-            if( bc.d_ta != JitBytecode::Instruction::Unused )
-                ci->setText(3,QString("%1(%2)").arg(JitBytecode::Instruction::s_typeName[bc.d_ta]).arg(bc.d_a));
-            if( bc.d_tb != JitBytecode::Instruction::Unused )
-                ci->setText(4,QString("%1(%2)").arg(JitBytecode::Instruction::s_typeName[bc.d_tb]).arg(bc.d_b));
-            if( bc.d_tcd != JitBytecode::Instruction::Unused )
-                ci->setText(5,QString("%1(%2)").arg(JitBytecode::Instruction::s_typeName[bc.d_tcd]).arg( bc.getCd() ));
+            ci->setText(3, Ljas::Disasm::renderArg(&f,bc.d_ta, bc.d_a, j, false, true ) );
+            ci->setText(4, Ljas::Disasm::renderArg(&f,bc.d_tb, bc.d_b, j, false, true ) );
+            ci->setText(5, Ljas::Disasm::renderArg(&f,bc.d_tcd, bc.getCd(), j, false, true ) );
         }
     }
     return fi;
 }
 
-void BcViewer::fillTree()
+void BcViewer2::fillTree()
 {
     clear();
 

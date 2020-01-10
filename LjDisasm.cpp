@@ -26,6 +26,73 @@
 using namespace Ljas;
 using namespace Lua;
 
+const char* Disasm::s_opName[] = {
+    "???",
+    "ISLT", "ISGE", "ISLE", "ISGT",
+    "ISEQ", "ISNE",
+    "ISTC", "ISFC", "IST", "ISF",
+    "MOV",
+    "NOT", "UNM",
+    "LEN", "ADD", "SUB", "MUL", "DIV", "MOD",
+    "POW",
+    "CAT",
+    "KSET", "KNIL",
+    "UGET", "USET",
+    "UCLO",
+    "FNEW",
+    "TNEW", "TDUP",
+    "GGET", "GSET",
+    "TGET", "TSET",
+    "CALL", "CALLT", "RET",
+    "FORI", "FORL",
+    "LOOP",
+    "JMP"
+};
+
+const char* Disasm::s_opHelp[] = {
+    "operation not supported",
+    "ISLT lhs:desig rhs:desig",
+    "ISGE lhs:desig rhs:desig",
+    "ISLE lhs:desig rhs:desig",
+    "ISGT lhs:desig rhs:desig",
+    "ISEQ lhs:desig rhs:( desig | string | number | primitive )",
+    "ISNE lhs:desig rhs:( desig | string | number | primitive )",
+    "ISTC lhs:desig rhs:desig, copy rhs to lhs and jump, if rhs is true",
+    "ISFC lhs:desig rhs:desig, copy rhs to lhs and jump, if rhs is false",
+    "IST slot:desig, jump if slot is true",
+    "ISF slot:desig, jump if slot is false",
+    "MOV dst:desig src:desig",
+    "NOT dst:desig src:desig",
+    "UNM dst:desig src:desig",
+    "LEN dst:desig table:desig",
+    "ADD dst:desig lhs:( desig | number ) rhs:( desig | number )",
+    "SUB dst:desig lhs:( desig | number ) rhs:( desig | number )",
+    "MUL dst:desig lhs:( desig | number ) rhs:( desig | number )",
+    "DIV dst:desig lhs:( desig | number ) rhs:( desig | number )",
+    "MOD dst:desig lhs:( desig | number ) rhs:( desig | number )",
+    "POW dst:desig lhs:desig rhs:desig, dst = lhs ^ rhs",
+    "CAT dst:desig from:desig [ len:posint ], dst = from .. ~ .. from + len - 1",
+    "KSET dst:desig const:( string | number | primitive | cname )",
+    "KNIL from:desig [ len:posint ], Set slots from to from + len - 1 to nil",
+    "UGET dst:desig uv:desig",
+    "USET uv:desig src:( string | number | primitive | desig )",
+    "UCLO from:desig [ label ], Close upvalues for slots ≥ from and jump to label",
+    "FNEW dst:desig fname",
+    "TNEW dst:desig [ arraySize:posint [ hashSize:posint ] ]",
+    "TDUP dst:desig src:( cname | table_literal )",
+    "GGET dst:desig index:( string | cname )",
+    "GSET src:desig index:( string | cname )",
+    "TGET dst:desig table:desig index:( desig | string | posint )",
+    "TSET src:desig table:desig index:( desig | string | posint )",
+    "CALL slots:desig [ numOfReturns:posint [ numOfArgs:posint ] ]",
+    "CALLT slots:desig [ numOfArgs:posint ]",
+    "RET [ slots:desig [ numOfSlots:posint ] ]",
+    "FORI slots:desig label, slots=index,stop,step,index copy",
+    "FORL desig label",
+    "LOOP",
+    "JMP label"
+};
+
 
 bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& path, bool stripped, bool alloc)
 {
@@ -40,6 +107,266 @@ bool Disasm::disassemble(const JitBytecode& bc, QIODevice* f, const QString& pat
     if( !writeFunc( out, bc.getRoot(), stripped, alloc, 0 ) )
         return false;
     return true;
+}
+
+bool Disasm::adaptToLjasm(JitBytecode::Instruction& bc, OP& op, QByteArray& warning )
+{
+    switch( JitBytecode::Op(bc.d_op) )
+    {
+    case JitBytecode::OP_INVALID:
+        op = INVALID;
+        break;
+    case JitBytecode::OP_ISLT:
+        op = ISLT;
+        break;
+    case JitBytecode::OP_ISGE:
+        op = ISGE;
+        break;
+    case JitBytecode::OP_ISLE:
+        op = ISLE;
+        break;
+    case JitBytecode::OP_ISGT:
+        op = ISGT;
+        break;
+    case JitBytecode::OP_ISTC:
+        op = ISTC;
+        break;
+    case JitBytecode::OP_ISFC:
+        op = ISFC;
+        break;
+    case JitBytecode::OP_IST:
+        op = IST;
+        break;
+    case JitBytecode::OP_ISF:
+        op = ISF;
+        break;
+    case JitBytecode::OP_MOV:
+        op = MOV;
+        break;
+    case JitBytecode::OP_NOT:
+        op = NOT;
+        break;
+    case JitBytecode::OP_UNM:
+        op = UNM;
+        break;
+    case JitBytecode::OP_LEN:
+        op = LEN;
+        break;
+    case JitBytecode::OP_POW:
+        op = POW;
+        break;
+    case JitBytecode::OP_UGET:
+        op = UGET;
+        break;
+    case JitBytecode::OP_UCLO:
+        op = UCLO;
+        break;
+    case JitBytecode::OP_FNEW:
+        op = FNEW;
+        break;
+    case JitBytecode::OP_TDUP:
+        op = TDUP;
+        break;
+    case JitBytecode::OP_GGET:
+        op = GGET;
+        break;
+    case JitBytecode::OP_GSET:
+        op = GSET;
+        break;
+    case JitBytecode::OP_FORI:
+        op = FORI;
+        break;
+    case JitBytecode::OP_FORL:
+        op = FORL;
+        break;
+    case JitBytecode::OP_LOOP:
+        op = LOOP;
+        break;
+    case JitBytecode::OP_JMP:
+        op = JMP;
+        break;
+    case JitBytecode::OP_ISEQV:
+    case JitBytecode::OP_ISEQS:
+    case JitBytecode::OP_ISEQN:
+    case JitBytecode::OP_ISEQP:
+        op = ISEQ;
+        break;
+    case JitBytecode::OP_ISNEV:
+    case JitBytecode::OP_ISNES:
+    case JitBytecode::OP_ISNEN:
+    case JitBytecode::OP_ISNEP:
+        op = ISNE;
+        break;
+    case JitBytecode::OP_ADDVN:
+    case JitBytecode::OP_ADDNV:
+    case JitBytecode::OP_ADDVV:
+        op = ADD;
+        break;
+    case JitBytecode::OP_SUBVN:
+    case JitBytecode::OP_SUBNV:
+    case JitBytecode::OP_SUBVV:
+        op = SUB;
+        break;
+    case JitBytecode::OP_MULVN:
+    case JitBytecode::OP_MULNV:
+    case JitBytecode::OP_MULVV:
+        op = MUL;
+        break;
+    case JitBytecode::OP_DIVVN:
+    case JitBytecode::OP_DIVNV:
+    case JitBytecode::OP_DIVVV:
+        op = DIV;
+        break;
+    case JitBytecode::OP_MODVN:
+    case JitBytecode::OP_MODNV:
+    case JitBytecode::OP_MODVV:
+        op = MOD;
+        break;
+    case JitBytecode::OP_KSTR:
+    case JitBytecode::OP_KCDATA:
+    case JitBytecode::OP_KSHORT:
+    case JitBytecode::OP_KNUM:
+    case JitBytecode::OP_KPRI:
+        op = KSET;
+        break;
+    case JitBytecode::OP_USETV:
+    case JitBytecode::OP_USETS:
+    case JitBytecode::OP_USETN:
+    case JitBytecode::OP_USETP:
+        op = USET;
+        break;
+    case JitBytecode::OP_TGETV:
+    case JitBytecode::OP_TGETS:
+    case JitBytecode::OP_TGETB:
+        op = TGET;
+        break;
+    case JitBytecode::OP_TSETV:
+    case JitBytecode::OP_TSETS:
+    case JitBytecode::OP_TSETB:
+        op = TSET;
+        break;
+    case JitBytecode::OP_RET:
+        op = RET;
+        bc.d_cd--; // Operand D is one plus the number of results to return.
+        break;
+    case JitBytecode::OP_RET0:
+        op = RET;
+        bc.d_tcd = JitBytecode::Instruction::Unused;
+        bc.d_ta = JitBytecode::Instruction::Unused;
+        break;
+   case JitBytecode::OP_RET1:
+        op = RET;
+        bc.d_tcd = JitBytecode::Instruction::Unused;
+        break;
+    case JitBytecode::OP_KNIL:
+        op = KNIL;
+        bc.d_cd = bc.d_cd - bc.d_a + 1;
+        if( bc.d_cd == 1 )
+            bc.d_tcd = JitBytecode::Instruction::Unused;
+        else
+            bc.d_tcd = JitBytecode::Instruction::_lit;
+        break;
+    case JitBytecode::OP_TNEW:
+        op = TNEW;
+        bc.d_b = bc.d_cd & 0x7ff;  // lowest 11 bits
+        bc.d_cd = bc.d_cd >> 11; // upper 5 bits
+        bc.d_tb = JitBytecode::Instruction::_lit;
+        bc.d_tcd = JitBytecode::Instruction::_lit;
+        if( bc.d_cd == 0 && bc.d_b == 0 )
+        {
+            bc.d_tcd = JitBytecode::Instruction::Unused;
+            bc.d_tb = JitBytecode::Instruction::Unused;
+        }else if( bc.d_cd == 0 )
+            bc.d_tcd = JitBytecode::Instruction::Unused;
+        break;
+    case JitBytecode::OP_CALL:
+        {
+            op = CALL;
+            bc.d_cd--;
+            if( bc.d_b >= 1 )
+                bc.d_b = bc.d_b - 1;
+            else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here
+            {
+                warning = "original second argument is MULTRES (not supported)";
+                bc.d_b = 1;
+            }
+            if( bc.d_b == 0 && bc.d_cd == 0 )
+            {
+                bc.d_tb = JitBytecode::Instruction::Unused;
+                bc.d_tcd = JitBytecode::Instruction::Unused;
+            }else if( bc.d_cd == 0 )
+                bc.d_tcd = JitBytecode::Instruction::Unused;
+        }
+        break;
+    case JitBytecode::OP_CALLM:
+        {
+            warning = "original is CALLM " + QByteArray::number(bc.d_b) + " "
+                    + QByteArray::number(bc.d_cd) + " (not supported)";
+            op = CALL;
+            // compared to CALL bc.d_cd is already the true number of fixed args
+            if( bc.d_cd == 0 )
+                bc.d_cd = 1; // we return at least one fixed arg
+            if( bc.d_b >= 1 )
+                bc.d_b = bc.d_b - 1;
+            else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here
+                bc.d_b = 1;
+            if( bc.d_b == 0 && bc.d_cd == 0 )
+            {
+                bc.d_tb = JitBytecode::Instruction::Unused;
+                bc.d_tcd = JitBytecode::Instruction::Unused;
+            }else if( bc.d_cd == 0 )
+                bc.d_tcd = JitBytecode::Instruction::Unused;
+        }
+        break;
+    case JitBytecode::OP_CALLT:
+        op = CALLT;
+        bc.d_cd--;
+        break;
+    case JitBytecode::OP_CALLMT:
+        op = INVALID;
+        warning = "original is CALLMT " + QByteArray::number(bc.d_cd) + " (not supported)";
+        if( bc.d_cd == 0 )
+            bc.d_cd = 1; // we return at least one fixed arg
+        break;
+    case JitBytecode::OP_CAT:
+        op = CAT;
+        bc.d_cd = bc.d_cd - bc.d_b + 1;
+        if( bc.d_cd == 1 )
+            bc.d_tcd = JitBytecode::Instruction::Unused;
+        else
+            bc.d_tcd = JitBytecode::Instruction::_lit;
+        break;
+        // implement later
+    case JitBytecode::OP_TSETM:
+    case JitBytecode::OP_RETM:
+    case JitBytecode::OP_VARG:
+    case JitBytecode::OP_ITERC:
+    case JitBytecode::OP_ITERN:
+    case JitBytecode::OP_ITERL:
+        // internals
+    case JitBytecode::OP_JFORI:
+    case JitBytecode::OP_IFORL:
+    case JitBytecode::OP_JFORL:
+    case JitBytecode::OP_IITERL:
+    case JitBytecode::OP_JITERL:
+    case JitBytecode::OP_ILOOP:
+    case JitBytecode::OP_JLOOP:
+    case JitBytecode::OP_ISNEXT:
+        warning = "operator not supported";
+        op = INVALID;
+        break;
+    }
+    return true;
+}
+
+bool Disasm::adaptToLjasm(JitBytecode::Instruction& bc, QByteArray& mnemonic, QByteArray& warning)
+{
+    OP op;
+    bool res = adaptToLjasm( bc, op, warning );
+    mnemonic = s_opName[op];
+    if( op == INVALID )
+        mnemonic = bc.d_name;
+    return res;
 }
 
 static inline QByteArray ws(int level)
@@ -74,7 +401,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
         {
             if( i != 0 )
                 out << " ";
-            Q_ASSERT( !f->d_varNames[i].isEmpty() );
+            // Q_ASSERT( !f->d_varNames[i].isEmpty() );
             out << f->d_varNames[i];
         }else
         {
@@ -272,182 +599,9 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
                 out << ws(level) << "__L" << pc << ":" << endl;
             JitBytecode::Instruction bc = JitBytecode::dissectInstruction(f->d_byteCodes[pc]);
             out << ws(level+1);
-            switch( bc.d_op )
-            {
-            case JitBytecode::OP_ISEQV:
-            case JitBytecode::OP_ISEQS:
-            case JitBytecode::OP_ISEQN:
-            case JitBytecode::OP_ISEQP:
-                out << "ISEQ";
-                break;
-            case JitBytecode::OP_ISNEV:
-            case JitBytecode::OP_ISNES:
-            case JitBytecode::OP_ISNEN:
-            case JitBytecode::OP_ISNEP:
-                out << "ISNE";
-                break;
-            case JitBytecode::OP_ADDVN:
-            case JitBytecode::OP_ADDNV:
-            case JitBytecode::OP_ADDVV:
-                out << "ADD";
-                break;
-            case JitBytecode::OP_SUBVN:
-            case JitBytecode::OP_SUBNV:
-            case JitBytecode::OP_SUBVV:
-                out << "SUB";
-                break;
-            case JitBytecode::OP_MULVN:
-            case JitBytecode::OP_MULNV:
-            case JitBytecode::OP_MULVV:
-                out << "MUL";
-                break;
-            case JitBytecode::OP_DIVVN:
-            case JitBytecode::OP_DIVNV:
-            case JitBytecode::OP_DIVVV:
-                out << "DIV";
-                break;
-            case JitBytecode::OP_MODVN:
-            case JitBytecode::OP_MODNV:
-            case JitBytecode::OP_MODVV:
-                out << "MOD";
-                break;
-            case JitBytecode::OP_KSTR:
-            case JitBytecode::OP_KCDATA:
-            case JitBytecode::OP_KSHORT:
-            case JitBytecode::OP_KNUM:
-            case JitBytecode::OP_KPRI:
-                out << "KSET";
-                break;
-            case JitBytecode::OP_USETV:
-            case JitBytecode::OP_USETS:
-            case JitBytecode::OP_USETN:
-            case JitBytecode::OP_USETP:
-                out << "USET";
-                break;
-            case JitBytecode::OP_TGETV:
-            case JitBytecode::OP_TGETS:
-            case JitBytecode::OP_TGETB:
-                out << "TGET";
-                break;
-            case JitBytecode::OP_TSETV:
-            case JitBytecode::OP_TSETS:
-            case JitBytecode::OP_TSETB:
-                out << "TSET";
-                break;
-            case JitBytecode::OP_RET:
-                out << "RET";
-                bc.d_cd--; // Operand D is one plus the number of results to return.
-                break;
-            case JitBytecode::OP_RET0:
-                out << "RET";
-                bc.d_tcd = JitBytecode::Instruction::Unused;
-                bc.d_ta = JitBytecode::Instruction::Unused;
-                break;
-           case JitBytecode::OP_RET1:
-                out << "RET";
-                bc.d_tcd = JitBytecode::Instruction::Unused;
-                break;
-            case JitBytecode::OP_KNIL:
-                out << "KNIL";
-                bc.d_cd = bc.d_cd - bc.d_a + 1;
-                if( bc.d_cd == 1 )
-                    bc.d_tcd = JitBytecode::Instruction::Unused;
-                else
-                    bc.d_tcd = JitBytecode::Instruction::_lit;
-                break;
-            case JitBytecode::OP_TNEW:
-                out << "TNEW";
-                bc.d_b = bc.d_cd & 0x7ff;  // lowest 11 bits
-                bc.d_cd = bc.d_cd >> 11; // upper 5 bits
-                bc.d_tb = JitBytecode::Instruction::_lit;
-                bc.d_tcd = JitBytecode::Instruction::_lit;
-                if( bc.d_cd == 0 && bc.d_b == 0 )
-                {
-                    bc.d_tcd = JitBytecode::Instruction::Unused;
-                    bc.d_tb = JitBytecode::Instruction::Unused;
-                }else if( bc.d_cd == 0 )
-                    bc.d_tcd = JitBytecode::Instruction::Unused;
-                break;
-            case JitBytecode::OP_CALL:
-                {
-                    out << "CALL";
-                    bc.d_cd--;
-                    if( bc.d_b >= 1 )
-                        bc.d_b = bc.d_b - 1;
-                    else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here
-                    {
-                        warning = "original second argument is MULTRES (not supported)";
-                        bc.d_b = 1;
-                    }
-                    if( bc.d_b == 0 && bc.d_cd == 0 )
-                    {
-                        bc.d_tb = JitBytecode::Instruction::Unused;
-                        bc.d_tcd = JitBytecode::Instruction::Unused;
-                    }else if( bc.d_cd == 0 )
-                        bc.d_tcd = JitBytecode::Instruction::Unused;
-                }
-                break;
-            case JitBytecode::OP_CALLM:
-                {
-                    warning = "original is CALLM " + QByteArray::number(bc.d_b) + " "
-                            + QByteArray::number(bc.d_cd) + " (not supported)";
-                    out << "CALL";
-                    // compared to CALL bc.d_cd is already the true number of fixed args
-                    if( bc.d_cd == 0 )
-                        bc.d_cd = 1; // we return at least one fixed arg
-                    if( bc.d_b >= 1 )
-                        bc.d_b = bc.d_b - 1;
-                    else if( bc.d_b == 0 ) // Operand B is zero for calls which return all results; modify to 1 return here
-                        bc.d_b = 1;
-                    if( bc.d_b == 0 && bc.d_cd == 0 )
-                    {
-                        bc.d_tb = JitBytecode::Instruction::Unused;
-                        bc.d_tcd = JitBytecode::Instruction::Unused;
-                    }else if( bc.d_cd == 0 )
-                        bc.d_tcd = JitBytecode::Instruction::Unused;
-                }
-                break;
-            case JitBytecode::OP_CALLT:
-                out << "CALLT";
-                bc.d_cd--;
-                break;
-            case JitBytecode::OP_CALLMT:
-                warning = "original is CALLMT " + QByteArray::number(bc.d_cd) + " (not supported)";
-                if( bc.d_cd == 0 )
-                    bc.d_cd = 1; // we return at least one fixed arg
-                break;
-            case JitBytecode::OP_CAT:
-                out << "CAT";
-                bc.d_cd = bc.d_cd - bc.d_b + 1;
-                if( bc.d_cd == 1 )
-                    bc.d_tcd = JitBytecode::Instruction::Unused;
-                else
-                    bc.d_tcd = JitBytecode::Instruction::_lit;
-                break;
-                // implement later
-            case JitBytecode::OP_TSETM:
-            case JitBytecode::OP_RETM:
-            case JitBytecode::OP_VARG:
-            case JitBytecode::OP_ITERC:
-            case JitBytecode::OP_ITERN:
-            case JitBytecode::OP_ITERL:
-                // internals
-            case JitBytecode::OP_JFORI:
-            case JitBytecode::OP_IFORL:
-            case JitBytecode::OP_JFORL:
-            case JitBytecode::OP_IITERL:
-            case JitBytecode::OP_JITERL:
-            case JitBytecode::OP_ILOOP:
-            case JitBytecode::OP_JLOOP:
-            case JitBytecode::OP_ISNEXT:
-                warning = "operator not supported";
-                out << bc.d_name;
-                break;
-            default:
-                out << bc.d_name;
-                break;
-            }
-            out << " ";
+            QByteArray mnemonic;
+            adaptToLjasm( bc, mnemonic, warning );
+            out << mnemonic << " ";
 
             const QByteArray a = renderArg(f,bc.d_ta,bc.d_a,pc,stripped);
             const QByteArray b = renderArg(f,bc.d_tb,bc.d_b,pc,stripped);
@@ -488,6 +642,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
     }
 
     out << ws(level) << "end F" << f->d_id << endl << endl;
+    return true;
 }
 
 static inline QByteArray getPriConst(int i)
@@ -533,7 +688,7 @@ static QByteArray tostring(const QVariant& v)
         return v.toByteArray();
 }
 
-QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int pc, bool stripped)
+QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int pc, bool stripped, bool alt)
 {
     switch( t )
     {
@@ -556,7 +711,10 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
 #ifdef _USE_REGISTER_ARRAY_
             return "T[" + QByteArray::number(v) + "]";
 #else
-            return "R" + QByteArray::number(v);
+            if( alt )
+                return "[" + QByteArray::number(v) + "]";
+            else
+                return "R" + QByteArray::number(v);
 #endif
         }
         break;
@@ -572,7 +730,10 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
     case JitBytecode::Instruction::_lits:
         return QByteArray::number(v);
     case JitBytecode::Instruction::_jump:
-        return "__L" + QByteArray::number(pc+1+v);
+        if( alt )
+            return "->" + QByteArray::number(pc+1+v);
+        else
+            return "__L" + QByteArray::number(pc+1+v);
     case JitBytecode::Instruction::_uv:
         {
             const QPair<quint8, JitBytecode::Function*> up = f->getFuncSlotFromUpval(v);
@@ -587,11 +748,16 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
             if( up.first < up.second->d_varNames.size() && !stripped )
                 return quali + up.second->d_varNames[up.first];
             else
+            {
 #ifdef _USE_REGISTER_ARRAY_
                 return quali + "T[" + QByteArray::number(up.first) + "]";
 #else
-                return quali + "R" + QByteArray::number(up.first);
+                if( alt )
+                    return quali + "[" + QByteArray::number(up.first) + "]";
+                else
+                    return quali + "R" + QByteArray::number(up.first);
 #endif
+            }
         }
         break;
     case JitBytecode::Instruction::_func:
