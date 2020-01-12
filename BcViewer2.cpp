@@ -39,11 +39,13 @@ BcViewer2::BcViewer2(QWidget *parent) : QTreeWidget(parent)
     setHeaderLabels( QStringList() << "what" << "idx" << "lnr/pc" << "lnr/pc/A" << "pars/B" << "frms/C/D");
     header()->setStretchLastSection(false);
     header()->setSectionResizeMode(0,QHeaderView::Stretch);
-    header()->setSectionResizeMode(1,QHeaderView::ResizeToContents);
-    header()->setSectionResizeMode(2,QHeaderView::ResizeToContents);
-    header()->setSectionResizeMode(3,QHeaderView::ResizeToContents);
-    header()->setSectionResizeMode(4,QHeaderView::ResizeToContents);
-    header()->setSectionResizeMode(5,QHeaderView::ResizeToContents);
+    /*
+    header()->setSectionResizeMode(1,QHeaderView::Interactive);
+    header()->setSectionResizeMode(2,QHeaderView::Interactive);
+    header()->setSectionResizeMode(3,QHeaderView::Interactive);
+    header()->setSectionResizeMode(4,QHeaderView::Interactive);
+    header()->setSectionResizeMode(5,QHeaderView::Interactive);
+    */
 
     connect(this,SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)),this,SLOT(onDoubleClicked(QTreeWidgetItem*,int)));
     //connect(this,SIGNAL(itemSelectionChanged()),this,SLOT(onSelectionChanged()));
@@ -209,8 +211,11 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
                 ci->setText(2,QString::number(f.d_lines[j]));
             }
             ci->setText(3, Ljas::Disasm::renderArg(&f,bc.d_ta, bc.d_a, j, false, true ) );
+            ci->setToolTip(3, ci->text(3) );
             ci->setText(4, Ljas::Disasm::renderArg(&f,bc.d_tb, bc.d_b, j, false, true ) );
+            ci->setToolTip(4, ci->text(4) );
             ci->setText(5, Ljas::Disasm::renderArg(&f,bc.d_tcd, bc.getCd(), j, false, true ) );
+            ci->setToolTip(5, ci->text(5) );
         }
     }
     return fi;
@@ -232,8 +237,11 @@ void BcViewer2::fillTree()
     expandAll();
     resizeColumnToContents(1);
     resizeColumnToContents(2);
-    resizeColumnToContents(3);
-    resizeColumnToContents(4);
-    resizeColumnToContents(5);
+    setColumnWidth(3,70);
+    setColumnWidth(4,60);
+    setColumnWidth(5,90);
+    //resizeColumnToContents(3);
+    //resizeColumnToContents(4);
+    //resizeColumnToContents(5);
 }
 

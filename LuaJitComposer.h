@@ -143,7 +143,7 @@ namespace Lua
         void setStripped(bool);
 
         static bool allocateWithLinearScan(SlotPool& pool, Intervals& vars, int len = 1 );
-        static int nextFreeSlot( SlotPool& pool, int len = 1 );
+        static int nextFreeSlot(SlotPool& pool, int len = 1 , int startFrom = -1);
         static bool releaseSlot( SlotPool& pool, quint8 slot, int len = 1 );
         static int highestUsedSlot( const SlotPool& pool );
     protected:

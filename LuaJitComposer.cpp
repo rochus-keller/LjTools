@@ -653,9 +653,11 @@ static inline void fill( JitComposer::SlotPool& pool, bool val, int from, int to
         pool.set(i,val);
 }
 
-int JitComposer::nextFreeSlot(SlotPool& pool, int len )
+int JitComposer::nextFreeSlot(SlotPool& pool, int len, int startFrom )
 {
     int slot = 0;
+    if( startFrom >= 0 )
+        slot = startFrom;
     while( true )
     {
         // skip used
