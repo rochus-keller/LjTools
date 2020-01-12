@@ -1786,6 +1786,9 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
         return JitBytecode::toPrimitive(v);
     case JitBytecode::Instruction::_cdata:
         return d_comp.getConstSlot(v); // TODO negate
+
+    case JitBytecode::Instruction::_jump:
+        // jump is already converted and biased when arriving here
     case JitBytecode::Instruction::_lit:
         if( JitBytecode::isNumber(v) )
         {
@@ -1795,7 +1798,6 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
         }
         break;
     case JitBytecode::Instruction::_lits:
-    case JitBytecode::Instruction::_jump:
         if( JitBytecode::isNumber(v) )
         {
             qint32 i = v.toInt();
