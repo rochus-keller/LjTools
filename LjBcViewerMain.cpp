@@ -21,7 +21,7 @@
 #include "LuaHighlighter.h"
 #include "Engine2.h"
 #include "Terminal2.h"
-#include "BcViewer.h"
+#include "BcViewer2.h"
 #include "LuaJitEngine.h"
 #include <QtDebug>
 #include <QDockWidget>
@@ -164,7 +164,7 @@ void MainWindow::createDumpView()
     dock->setObjectName("Bytecode");
     dock->setAllowedAreas( Qt::AllDockWidgetAreas );
     dock->setFeatures( QDockWidget::DockWidgetMovable );
-    d_bcv = new BcViewer(dock);
+    d_bcv = new BcViewer2(dock);
     dock->setWidget(d_bcv);
     addDockWidget( Qt::RightDockWidgetArea, dock );
 }
@@ -440,7 +440,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjBcViewer");
-    a.setApplicationVersion("0.5.1");
+    a.setApplicationVersion("0.5.2");
     a.setStyle("Fusion");
 
     Lua::MainWindow w;

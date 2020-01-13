@@ -33,7 +33,7 @@ SOURCES += LjBcViewerMain.cpp \
     Engine2.cpp \
     Terminal2.cpp \
     ExpressionParser.cpp \
-    BcViewer.cpp \
+    BcViewer2.cpp \
     LuaJitEngine.cpp \
     LuaJitComposer.cpp \
     LjDisasm.cpp
@@ -45,7 +45,7 @@ HEADERS  += LjBcViewerMain.h \
     Engine2.h \
     Terminal2.h \
     ExpressionParser.h \
-    BcViewer.h \
+    BcViewer2.h \
     LuaJitEngine.h \
     LuaJitComposer.h \
     LjDisasm.h \

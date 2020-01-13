@@ -27,7 +27,7 @@ class CodeEditor;
 namespace Lua
 {
     class Engine2;
-    class BcViewer;
+    class BcViewer2;
     class Terminal2;
     class JitEngine;
 
@@ -68,7 +68,7 @@ namespace Lua
     private:
         CodeEditor* d_edit;
         Engine2* d_lua;
-        BcViewer* d_bcv;
+        BcViewer2* d_bcv;
         Terminal2* d_term;
         JitEngine* d_eng;
         bool d_lock;
