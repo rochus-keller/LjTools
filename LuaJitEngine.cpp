@@ -27,6 +27,33 @@ using namespace Lua;
 QSet<JitEngine::Table*> JitEngine::Table::d_all;
 QSet<JitEngine::TableRef*> JitEngine::TableRef::d_all;
 
+enum MetaEvent { ADD, SUB, MUL, DIV, MOD, POW, UNM, CAT, LEN, EQ, LT, LE, IDX, NIDX, CALL };
+static const char* metaEventName[] =
+{
+    "__add",
+    "__sub",
+    "__mul",
+    "__div",
+    "__mod",
+    "__pow",
+    "__unm",
+    "__concat",
+    "__len",
+    "__eq",
+    "__lt",
+    "__le",
+    "__index",
+    "__newindex",
+    "__call"
+};
+
+/* TODO
+
+  require
+  finish meta methods
+
+*/
+
 JitEngine::JitEngine(QObject *parent) : QObject(parent)
 {
 
@@ -97,6 +124,8 @@ void JitEngine::installLibs()
 {
     d_globals[QByteArray("print")] = QVariant::fromValue( CFunction(_print) );
     d_globals[QByteArray("dbgout")] = QVariant::fromValue( CFunction(_print) );
+    d_globals[QByteArray("setmetatable")] = QVariant::fromValue( CFunction(_setmetatable) );
+    d_globals[QByteArray("getmetatable")] = QVariant::fromValue( CFunction(_getmetatable) );
     d_globals[QByteArray("_VERSION")] = QByteArray("TestVM");
 }
 
@@ -235,9 +264,81 @@ QByteArray JitEngine::tostring(const QVariant& v)
         return v.toByteArray();
 }
 
+int JitEngine::_setmetatable(JitEngine* eng, QVariantList& inout)
+{
+    if( inout.size() != 2 )
+        eng->error(tr("expecting two argument"));
+    else if( !inout[0].canConvert<TableRef>() )
+        eng->error(tr("expecting a table as first argument"));
+    else if( !inout[1].isNull() && !inout[1].canConvert<TableRef>() )
+        eng->error(tr("expecting a table or null as second argument"));
+    else
+    {
+        TableRef t = inout[0].value<TableRef>();
+        if( inout[1].isNull() )
+            t.deref()->d_metaTable = 0;
+        else
+            t.deref()->d_metaTable = inout[1].value<TableRef>().deref();
+        inout.clear();
+        inout << QVariant::fromValue(t);
+        return 1;
+    }
+    return -1;
+}
+
+int JitEngine::_getmetatable(JitEngine* eng, QVariantList& inout)
+{
+    if( inout.size() != 1 )
+        eng->error(tr("expecting one argument"));
+    else if( !inout[0].canConvert<TableRef>() )
+        eng->error(tr("expecting a table"));
+    else
+    {
+        TableRef t = inout[0].value<TableRef>();
+        inout.clear();
+        if( t.deref()->d_metaTable.deref() )
+            inout << QVariant::fromValue( TableRef(t.deref()->d_metaTable.deref()) );
+        else
+            inout << QVariant();
+        return 1;
+    }
+    return -1;
+}
+
 bool JitEngine::isTrue(const QVariant& v)
 {
     return !v.isNull() && !( v.type() == QVariant::Bool && v.toBool() == false );
+}
+
+QVariant JitEngine::getBinHandler(const QVariant& lhs, const QVariant& rhs, int event)
+{
+    QVariant v = getHandler(lhs, event);
+    if( v.isValid() )
+        return v;
+    return getHandler(rhs,event);
+}
+
+QVariant JitEngine::getHandler(const QVariant& v, int event)
+{
+    if( v.canConvert<TableRef>() )
+    {
+        TableRef t = v.value<TableRef>();
+        if( t.deref()->d_metaTable.deref() )
+            return t.deref()->d_metaTable.deref()->d_hash.value(QByteArray(metaEventName[event]));
+    }
+    return QVariant();
+}
+
+QVariant JitEngine::getCompHandler(const QVariant& lhs, const QVariant& rhs, int event)
+{
+    if( lhs.type() != rhs.type() )
+        return QVariant();
+    QVariant h1 = getHandler(lhs,event);
+    QVariant h2 = getHandler(rhs,event);
+    if( h1 == h2 )
+        return h1;
+    else
+        return QVariant();
 }
 
 bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::Instruction& bc)
@@ -284,7 +385,43 @@ bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::Instruction& b
             break;
         }
     }else
-        return error2(f, "incompatible types for comparison");
+    {
+        QVariantList inout;
+        QVariant c;
+        switch( bc.d_op )
+        {
+        case BC_ISLT:
+            c = getCompHandler(lhs,rhs, LT );
+            inout << lhs << rhs;
+            break;
+        case BC_ISGT:
+            c = getCompHandler(lhs,rhs, LT );
+            inout << rhs << lhs;
+            break;
+        case BC_ISLE:
+            c = getCompHandler(lhs,rhs, LE );
+            inout << lhs << rhs;
+            break;
+        case BC_ISGE:
+            c = getCompHandler(lhs,rhs, LE );
+            inout << rhs << lhs;
+            break;
+        }
+        if( !c.isValid() && ( bc.d_op == BC_ISLE || bc.d_op == BC_ISGE ) )
+        {
+            c = getCompHandler(lhs,rhs, LT );
+            qSwap( inout[0], inout[1] );
+        }
+        if( c.isValid() )
+        {
+            if( doCall(f,c,inout) < 0 )
+                return false;
+            if( inout.isEmpty() )
+                return error2(f,tr("bind handler not returning a value"));
+            res = inout.first().toBool();
+        }else
+            return error2(f, "incompatible types for comparison");
+    }
 
     return doJumpAfterCompare(f, res);
 }
@@ -370,7 +507,29 @@ bool JitEngine::doEquality(JitEngine::Frame& f, const JitBytecode::Instruction& 
             res = lhs.value<CFunction>().d_func != rhs.value<CFunction>().d_func;
             break;
         }
-    } // else res = false;
+    }else
+    {
+        QVariant c = getCompHandler(lhs,rhs, EQ );
+        if( c.isValid() )
+        {
+            QVariantList inout;
+            inout << lhs << rhs;
+            if( doCall(f,c,inout) < 0 )
+                return false;
+            if( inout.isEmpty() )
+                return error2(f,tr("bind handler not returning a value"));
+            res = inout.first().toBool();
+            switch( bc.d_op )
+            {
+            case BC_ISNEV:
+            case BC_ISNES:
+            case BC_ISNEN:
+            case BC_ISNEP:
+                res = !res;
+                break;
+            }
+        }// else res == false
+    }
     return doJumpAfterCompare(f, res);
 }
 
@@ -386,6 +545,265 @@ bool JitEngine::doJumpAfterCompare(JitEngine::Frame& f, bool res)
     if( res )
         f.d_pc += bc.getCd();
     return true;
+}
+
+bool JitEngine::doArith(JitEngine::Frame& f, const JitBytecode::Instruction& bc)
+{
+    QVariant lhs, rhs;
+
+    switch( bc.d_op )
+    {
+    case BC_ADDVN:
+    case BC_SUBVN:
+    case BC_MULVN:
+    case BC_DIVVN:
+    case BC_MODVN:
+        lhs = getSlotVal( f, bc.d_b );
+        rhs = getNumConst( f, bc.getCd() );
+        break;
+    case BC_ADDNV:
+    case BC_SUBNV:
+    case BC_MULNV:
+    case BC_DIVNV:
+    case BC_MODNV:
+        lhs = getNumConst( f, bc.getCd() );
+        rhs = getSlotVal( f, bc.d_b );
+        break;
+    case BC_ADDVV:
+    case BC_SUBVV:
+    case BC_MULVV:
+    case BC_DIVVV:
+    case BC_MODVV:
+    case BC_POW:
+        lhs = getSlotVal( f, bc.d_b );
+        rhs = getSlotVal( f, bc.getCd() );
+        break;
+    }
+
+    if( JitBytecode::isNumber(lhs) && JitBytecode::isNumber(rhs) )
+    {
+        switch( bc.d_op )
+        {
+        case BC_ADDVN:
+            setSlotVal(f, bc.d_a, lhs.toDouble() + rhs.toDouble() );
+            break;
+        case BC_SUBVN:
+            setSlotVal(f, bc.d_a, lhs.toDouble() - rhs.toDouble() );
+            break;
+        case BC_MULVN:
+            setSlotVal(f, bc.d_a, lhs.toDouble() * rhs.toDouble() );
+            break;
+        case BC_DIVVN:
+            setSlotVal(f, bc.d_a, lhs.toDouble() / rhs.toDouble() );
+            break;
+        case BC_MODVN:
+            setSlotVal(f, bc.d_a, std::fmod(lhs.toDouble(), rhs.toDouble()) );
+            break;
+
+        case BC_ADDNV:
+            setSlotVal(f, bc.d_a, lhs.toDouble() + rhs.toDouble() );
+            break;
+        case BC_SUBNV:
+            setSlotVal(f, bc.d_a, lhs.toDouble() - rhs.toDouble() );
+            break;
+        case BC_MULNV:
+            setSlotVal(f, bc.d_a, lhs.toDouble() * rhs.toDouble() );
+            break;
+        case BC_DIVNV:
+            setSlotVal(f, bc.d_a, lhs.toDouble() / rhs.toDouble() );
+            break;
+        case BC_MODNV:
+            setSlotVal(f, bc.d_a, std::fmod(lhs.toDouble(), rhs.toDouble()) );
+            break;
+
+        case BC_ADDVV:
+            setSlotVal(f, bc.d_a, lhs.toDouble() + rhs.toDouble() );
+            break;
+        case BC_SUBVV:
+            setSlotVal(f, bc.d_a, lhs.toDouble() - rhs.toDouble() );
+            break;
+        case BC_MULVV:
+            setSlotVal(f, bc.d_a, lhs.toDouble() * rhs.toDouble() );
+            break;
+        case BC_DIVVV:
+            setSlotVal(f, bc.d_a, lhs.toDouble() / rhs.toDouble() );
+            break;
+        case BC_MODVV:
+            setSlotVal(f, bc.d_a, std::fmod( lhs.toDouble(), rhs.toDouble() ) );
+            break;
+
+        case BC_POW:
+            setSlotVal(f, bc.d_a, std::pow( lhs.toDouble(), rhs.toDouble() ) );
+            break;
+        }
+        return true;
+    }else
+    {
+        int op;
+        switch( bc.d_op )
+        {
+        case BC_ADDVN:
+        case BC_ADDNV:
+        case BC_ADDVV:
+            op = ADD;
+            break;
+        case BC_SUBVN:
+        case BC_SUBNV:
+        case BC_SUBVV:
+            op = SUB;
+            break;
+        case BC_MULVN:
+        case BC_MULNV:
+        case BC_MULVV:
+            op = MUL;
+            break;
+        case BC_DIVVN:
+        case BC_DIVNV:
+        case BC_DIVVV:
+            op = DIV;
+            break;
+        case BC_MODVN:
+        case BC_MODNV:
+        case BC_MODVV:
+            op = MOD;
+            break;
+        case BC_POW:
+            op = POW;
+            break;
+        }
+
+        QVariant c = getBinHandler( lhs, rhs, op );
+        QVariantList inout;
+        inout << lhs << rhs;
+        if( doCall(f,c,inout) < 0 )
+            return false;
+        if( inout.isEmpty() )
+            return error2(f,tr("bind handler not returning a value"));
+        setSlotVal(f, bc.d_a, inout.first() );
+        return true;
+    } // else
+    return error2(f, tr("operation not compatible with operands") );
+}
+
+static QVariant fromPrimitive( int p )
+{
+    switch( p )
+    {
+    default:
+    case 0:
+        return QVariant();
+    case 1:
+        return false;
+    case 2:
+        return true;
+    }
+}
+
+bool JitEngine::doGetT(JitEngine::Frame& f, const JitBytecode::Instruction& bc)
+{
+    QVariant table = getSlotVal(f, bc.d_b);
+    QVariant key;
+
+    switch( bc.d_op )
+    {
+    case BC_TGETV:
+        key = getSlotVal(f,bc.getCd());
+        break;
+    case BC_TGETS:
+        key = getGcConst(f,bc.getCd());
+        break;
+    case BC_TGETB:
+        key = fromPrimitive(bc.getCd());
+        break;
+    }
+    if( table.canConvert<TableRef>() )
+    {
+        TableRef t = table.value<TableRef>();
+        QVariant v = t.deref()->d_hash.value(key);
+        if( v.isValid() )
+            setSlotVal(f,bc.d_a, v );
+        else
+        {
+            QVariant c;
+            c = getHandler(table,IDX);
+            if( !c.isValid() )
+            {
+                if( t.deref()->isUserObject() )
+                    return error2( f, tr("no index metha method for object") );
+                else
+                    setSlotVal(f,bc.d_a, QVariant() );
+            }else if( c.canConvert<Closure>() || c.canConvert<CFunction>() )
+            {
+                QVariantList inout;
+                inout << table << key;
+                if( doCall(f,c,inout) < 0 )
+                    return false;
+                if( inout.isEmpty() )
+                    return error2(f,tr("bind handler not returning a value"));
+            }else if( c.canConvert<TableRef>() )
+            {
+                TableRef t = c.value<TableRef>();
+                setSlotVal(f,bc.d_a, t.deref()->d_hash.value(key) ); // TODO reapply doGetT to c/key
+            }else
+                setSlotVal(f,bc.d_a, QVariant() );
+        }
+    }else
+        return error2( f, tr("cannot index argument") );
+
+    return true;
+}
+
+bool JitEngine::doSetT(JitEngine::Frame& f, const JitBytecode::Instruction& bc)
+{
+    QVariant table = getSlotVal(f, bc.d_b);
+    QVariant key;
+    QVariant value = getSlotVal(f,bc.d_a);
+
+    switch( bc.d_op )
+    {
+    case BC_TSETV:
+        key = getSlotVal(f,bc.getCd());
+        break;
+    case BC_TSETS:
+        key = getGcConst(f,bc.getCd());
+        break;
+    case BC_TSETB:
+        key = fromPrimitive(bc.getCd());
+        break;
+    }
+
+    // TODO: settable_event meta
+    if( !table.canConvert<TableRef>() )
+    {
+        error2(f,"not a table reference");
+        return false;
+    }else
+    {
+        TableRef t = table.value<TableRef>();
+        t.deref()->d_hash.insert( key, value );
+    }
+
+    return true;
+}
+
+int JitEngine::doCall(JitEngine::Frame& f, const QVariant& vc, QVariantList& inout )
+{
+    if( vc.canConvert<Closure>())
+    {
+        Closure c = vc.value<Closure>();
+        if( !run( &f, &c, inout ) )
+            return -1;
+        else
+            return inout.size();
+    }else if( vc.canConvert<CFunction>() )
+    {
+        CFunction c = vc.value<CFunction>();
+        return c.d_func(this,inout);
+    }else
+    {
+        error2(f,tr("slot value is not callable") );
+        return -1;
+    }
 }
 
 bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
@@ -523,7 +941,22 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             f.d_pc++;
             break;
         case BC_UNM:
-            setSlotVal(f, bc.d_a, -getSlotVal( f, bc.getCd() ).toDouble() );
+            {
+                QVariant val = getSlotVal( f, bc.getCd() );
+                if( JitBytecode::isNumber(val) )
+                    setSlotVal(f, bc.d_a, -val.toDouble() );
+                else
+                {
+                    QVariant c = getHandler(val, UNM );
+                    QVariantList inout;
+                    inout << val;
+                    if( doCall(f,c,inout) < 0 )
+                        return false;
+                    if( inout.isEmpty() )
+                        return error2(f,tr("bind handler not returning a value"));
+                    setSlotVal(f, bc.d_a, inout.first() );
+                }
+            }
             f.d_pc++;
             break;
         case BC_LEN:
@@ -532,8 +965,26 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 if( v.type() == QVariant::ByteArray )
                     setSlotVal(f, bc.d_a, v.toByteArray().size() );
                 else if( v.canConvert<TableRef>() )
-                    setSlotVal(f, bc.d_a, v.value<TableRef>().deref()->d_hash.size() ); // TODO: may be wrong
-                else
+                {
+                    TableRef t = v.value<TableRef>();
+                    if( !t.deref()->isUserObject() )
+                        setSlotVal(f, bc.d_a, t.deref()->d_hash.size() );
+                    else
+                    {
+                        QVariant c = getHandler(v, LEN );
+                        if( c.isValid() )
+                        {
+                            QVariantList inout;
+                            inout << v;
+                            if( doCall(f,c,inout) < 0 )
+                                return false;
+                            if( inout.isEmpty() )
+                                return error2(f,tr("bind handler not returning a value"));
+                            setSlotVal(f, bc.d_a, inout.first() );
+                        }else
+                            return error2(f,tr("no __len meta method found"));
+                    }
+                }else
                     return error2(f,tr("invalid application of LEN").arg(bc.getCd()) );
                 f.d_pc++;
             }
@@ -541,70 +992,23 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
 
         // Binary Ops (fully implemented) **********************************
         case BC_ADDVN:
-            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() + getNumConst( f, bc.getCd() ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_SUBVN:
-            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() - getNumConst( f, bc.getCd() ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_MULVN:
-            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() * getNumConst( f, bc.getCd() ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_DIVVN:
-            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() / getNumConst( f, bc.getCd() ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_MODVN:
-            setSlotVal(f, bc.d_a, std::fmod(getSlotVal( f, bc.d_b ).toDouble(), getNumConst( f, bc.getCd() ).toDouble()) );
-            f.d_pc++;
-            break;
-
         case BC_ADDNV:
-            setSlotVal(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() + getSlotVal( f, bc.d_b ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_SUBNV:
-            setSlotVal(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() - getSlotVal( f, bc.d_b ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_MULNV:
-            setSlotVal(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() * getSlotVal( f, bc.d_b ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_DIVNV:
-            setSlotVal(f, bc.d_a, getNumConst( f, bc.getCd() ).toDouble() / getSlotVal( f, bc.d_b ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_MODNV:
-            setSlotVal(f, bc.d_a, std::fmod(getNumConst( f, bc.getCd() ).toDouble(), getSlotVal( f, bc.d_b ).toDouble()) );
-            f.d_pc++;
-            break;
-
         case BC_ADDVV:
-            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() + getSlotVal( f, bc.getCd() ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_SUBVV:
-            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() - getSlotVal( f, bc.getCd() ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_MULVV:
-            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() * getSlotVal( f, bc.getCd() ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_DIVVV:
-            setSlotVal(f, bc.d_a, getSlotVal( f, bc.d_b ).toDouble() / getSlotVal( f, bc.getCd() ).toDouble() );
-            f.d_pc++;
-            break;
         case BC_MODVV:
-            setSlotVal(f, bc.d_a, std::fmod( getSlotVal( f, bc.d_b ).toDouble(), getSlotVal( f, bc.getCd() ).toDouble() ) );
-            f.d_pc++;
-            break;
-
         case BC_POW:
-            setSlotVal(f, bc.d_a, std::pow( getSlotVal( f, bc.d_b ).toDouble(), getSlotVal( f, bc.getCd() ).toDouble() ) );
+            if( !doArith( f, bc ) )
+                return false;
             f.d_pc++;
             break;
 
@@ -615,6 +1019,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                     res += getSlotVal( f, i ).toByteArray();
                 setSlotVal( f, bc.d_a, res );
                 f.d_pc++;
+                // TODO: call meta method if avail
             }
             break;
 
@@ -624,6 +1029,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             f.d_pc++;
             break;
         case BC_KSTR:
+        case BC_KCDATA:
             setSlotVal(f, bc.d_a, getGcConst(f,bc.getCd()));
             f.d_pc++;
             break;
@@ -640,7 +1046,6 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 setSlotVal(f, i, QVariant() );
             f.d_pc++;
             break;
-            // TODO: what is KCDATA for?
 
         // Table Ops **********************************
         case BC_GSET:
@@ -656,58 +1061,18 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
             f.d_pc++;
             break;
         case BC_TGETV:
-            {
-                TableRef t = getTable(f,bc.d_b);
-                if( t.isNull() )
-                    return false;
-                setSlotVal(f,bc.d_a, t.deref()->d_hash.value(getSlotVal(f,bc.getCd()) ) );
-                f.d_pc++;
-            }
-            break;
         case BC_TGETS:
-            {
-                TableRef t = getTable(f,bc.d_b);
-                if( t.isNull() )
-                    return false;
-                setSlotVal(f,bc.d_a, t.deref()->d_hash.value(getGcConst(f,bc.getCd()) ) );
-                f.d_pc++;
-            }
-            break;
         case BC_TGETB:
-            {
-                TableRef t = getTable(f,bc.d_b);
-                if( t.isNull() )
-                    return false;
-                setSlotVal(f,bc.d_a, t.deref()->d_hash.value(bc.getCd()) );
-                f.d_pc++;
-            }
+            if( !doGetT( f, bc ) )
+                return false;
+            f.d_pc++;
             break;
         case BC_TSETV:
-            {
-                TableRef t = getTable(f,bc.d_b);
-                if( t.isNull() )
-                    return false;
-                t.deref()->d_hash.insert( getSlotVal(f,bc.getCd()), getSlotVal(f,bc.d_a) );
-                f.d_pc++;
-            }
-            break;
         case BC_TSETS:
-            {
-                TableRef t = getTable(f,bc.d_b);
-                if( t.isNull() )
-                    return false;
-                t.deref()->d_hash.insert( getGcConst(f,bc.getCd()), getSlotVal(f,bc.d_a) );
-                f.d_pc++;
-            }
-            break;
         case BC_TSETB:
-            {
-                TableRef t = getTable(f,bc.d_b);
-                if( t.isNull() )
-                    return false;
-                t.deref()->d_hash.insert( bc.getCd(), getSlotVal(f,bc.d_a) );
-                f.d_pc++;
-            }
+            if( !doSetT( f, bc ) )
+                return false;
+            f.d_pc++;
             break;
         case BC_TDUP:
             {
@@ -792,29 +1157,14 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
         case BC_CALL:
             {
                 const QVariant vc = getSlotVal( f, bc.d_a );
-                if( vc.canConvert<Closure>())
-                {
-                    Closure c = vc.value<Closure>();
-                    QVariantList inout;
-                    for( int i = bc.d_a + 1; i <= ( bc.d_a + bc.getCd() - 1 ); i++ )
-                        inout.append( getSlotVal(f,i) );
-                    if( !run( &f, &c, inout ) )
-                        return false;
-                    for( int i = bc.d_a; i <= ( bc.d_a + bc.d_b - 2 ) && i < inout.size(); i++ )
-                        setSlotVal( f, i, inout[i] );
-                }else if( vc.canConvert<CFunction>() )
-                {
-                    CFunction c = vc.value<CFunction>();
-                    QVariantList inout;
-                    for( int i = bc.d_a + 1; i <= ( bc.d_a + bc.getCd() - 1 ); i++ )
-                        inout.append( getSlotVal(f,i) );
-                    const int res = c.d_func(this,inout);
-                    if( res < 0 )
-                        return false;
-                    for( int i = bc.d_a; i <= ( bc.d_a + bc.d_b - 2 ) && i < inout.size() && i < res; i++ )
-                        setSlotVal( f, i, inout[i] );
-                }else
-                    return error2(f,tr("slot %1 is neither a closure nor a cfunction").arg(bc.d_a) );
+                QVariantList inout;
+                for( int i = bc.d_a + 1; i <= ( bc.d_a + bc.getCd() - 1 ); i++ )
+                    inout.append( getSlotVal(f,i) );
+                const int res = doCall( f, vc, inout );
+                if( res < 0 )
+                    return false;
+                for( int i = bc.d_a; i <= ( bc.d_a + bc.d_b - 2 ) && i < inout.size() && i < res; i++ )
+                    setSlotVal( f, i, inout[i] );
                 f.d_pc++;
             }
             break;
@@ -832,4 +1182,11 @@ void JitEngine::Frame::dump()
 {
     for( int i = 0; i < d_slots.size(); i++ )
         qDebug() << "Slot" << i << "=" << tostring(d_slots[i]->d_val);
+}
+
+
+void JitEngine::Table::allocateUserData(quint32 size)
+{
+    if( d_userData == 0 )
+        d_userData = ::malloc(size);
 }

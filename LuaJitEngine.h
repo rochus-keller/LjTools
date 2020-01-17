@@ -35,25 +35,8 @@ namespace Lua
     {
         Q_OBJECT
     public:
-        class Table
-        {
-        public:
-            static Table* create() { return new Table(); }
-            QVariant d_metaTable;
-            QHash<QVariant,QVariant> d_hash;
-       private:
-            friend class JitEngine;
-            Table():d_marked(false)
-            {
-                d_all.insert(this);
-            }
-            ~Table()
-            {
-                d_all.remove(this);
-            }
-            static QSet<Table*> d_all;
-            bool d_marked;
-        };
+        class Table;
+
         class TableRef
         {
         public:
@@ -87,6 +70,33 @@ namespace Lua
             static QSet<TableRef*> d_all;
             friend class JitEngine;
         };
+
+        class Table
+        {
+        public:
+            static Table* create() { return new Table(); }
+            void allocateUserData( quint32 size );
+            bool isUserObject() const { return d_userData != 0; }
+            void* userData() { return d_userData; }
+        private:
+            friend class JitEngine;
+            Table():d_marked(false),d_userData(0)
+            {
+                d_all.insert(this);
+            }
+            ~Table()
+            {
+                if( d_userData )
+                    ::free(d_userData);
+                d_all.remove(this);
+            }
+            static QSet<Table*> d_all;
+            QHash<QVariant,QVariant> d_hash;
+            TableRef d_metaTable;
+            void* d_userData;
+            bool d_marked;
+        };
+
         struct Slot : public QSharedData
         {
             QVariant d_val;
@@ -94,12 +104,14 @@ namespace Lua
             bool d_closed;
         };
         typedef QExplicitlySharedDataPointer<Slot> SlotRef;
+
         struct Closure
         {
             Closure(JitBytecode::Function* f = 0 ):d_func(f) {}
             JitBytecode::FuncRef d_func;
             QList<SlotRef> d_upvals;
         };
+
         struct CFunction
         {
             typedef int (*Imp)(JitEngine*, QVariantList& inout );
@@ -107,7 +119,6 @@ namespace Lua
             Imp d_func;
             // returns 0..n ...number of return values, -1 ...error
         };
-
 
         explicit JitEngine(QObject *parent = 0);
         ~JitEngine();
@@ -148,10 +159,19 @@ namespace Lua
         bool doCompare( Frame&, const JitBytecode::Instruction& bc );
         bool doEquality( Frame&, const JitBytecode::Instruction& bc );
         bool doJumpAfterCompare(Frame&, bool res );
+        bool doArith( Frame&, const JitBytecode::Instruction& bc );
+        bool doGetT( Frame&, const JitBytecode::Instruction& bc );
+        bool doSetT( Frame&, const JitBytecode::Instruction& bc );
+        int doCall(Frame&, const QVariant& f, QVariantList& inout );
 
         static int _print(JitEngine*,  QVariantList& inout );
         static QByteArray tostring( const QVariant& v );
+        static int _setmetatable(JitEngine*, QVariantList& inout );
+        static int _getmetatable(JitEngine*, QVariantList& inout );
         static bool isTrue( const QVariant& );
+        static QVariant getBinHandler( const QVariant& lhs, const QVariant& rhs, int event );
+        static QVariant getHandler( const QVariant& v, int event );
+        static QVariant getCompHandler( const QVariant& lhs, const QVariant& rhs, int event );
     private:
         QHash<QVariant,QVariant> d_globals;
         Frame d_root;
