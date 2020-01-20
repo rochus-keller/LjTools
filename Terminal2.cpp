@@ -33,6 +33,7 @@
 #include <QSettings>
 #include <GuiTools/AutoMenu.h>
 #include <QProcess>
+#include <QDate>
 #include <lua.hpp>
 using namespace Lua;
 
@@ -85,8 +86,8 @@ Terminal2::Terminal2(QWidget* parent, Lua::Engine2* l):
 	printText( QString("%1 %2").arg(LUA_RELEASE).arg(LUA_COPYRIGHT) );
     printText( QString("%1 -- %2. %3").arg(LUAJIT_VERSION).arg(LUAJIT_COPYRIGHT).arg(LUAJIT_URL) );
     printJitInfo();
-    printText( tr("%3 %1 (c) 2019 %2").arg(qApp->applicationVersion()).
-               arg(qApp->organizationName()).arg(qApp->applicationName()));
+    printText( tr("%3 %1 (c) 2019-%4 %2").arg(qApp->applicationVersion()).
+               arg(qApp->organizationName()).arg(qApp->applicationName()).arg(QDate::currentDate().year()));
 }
 
 void Terminal2::printText(const QString & str, bool err )
