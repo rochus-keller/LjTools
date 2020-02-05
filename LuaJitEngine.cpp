@@ -70,7 +70,7 @@ bool JitEngine::run(JitBytecode* bc)
         return false;
     reset();
     JitBytecode::FuncRef f( bc->getRoot() );
-    if( f == 0 )
+    if( f.constData() == 0 )
         return error(tr("invalid chunk"));
 
     Closure c(f.data());
@@ -450,8 +450,8 @@ bool JitEngine::doEquality(JitEngine::Frame& f, const JitBytecode::Instruction& 
         break;
     }
     bool res = false;
-    if( JitBytecode::isNumber( lhs ) && JitBytecode::isNumber( rhs ) ||
-            JitBytecode::isString( lhs ) && JitBytecode::isString( rhs ) )
+    if( ( JitBytecode::isNumber( lhs ) && JitBytecode::isNumber( rhs ) ) ||
+            ( JitBytecode::isString( lhs ) && JitBytecode::isString( rhs ) ) )
     {
         switch( bc.d_op )
         {
@@ -859,7 +859,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 setSlotVal(f,bc.d_a+3,idx);
                 f.d_pc++; // relative to next instruction
                 // All *FOR* instructions check that idx <= stop (if step >= 0 ) or idx >= stop (if step < 0 )
-                if( step >= 0 && idx <= stop || step < 0 && idx >= stop )
+                if( ( step >= 0 && idx <= stop ) || ( step < 0 && idx >= stop ) )
                 {
                     // If true, idx is copied to the ext idx slot (visible loop variable in the loop body)
                     extIdxSlot->d_val = idx;
@@ -880,7 +880,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
                 idxSlot->d_val = idx;
                 f.d_pc++; // relative to next instruction
                 // All *FOR* instructions check that idx <= stop (if step >= 0 ) or idx >= stop (if step < 0 )
-                if( step >= 0 && idx <= stop || step < 0 && idx >= stop )
+                if( ( step >= 0 && idx <= stop ) || ( step < 0 && idx >= stop ) )
                 {
                     // If true, idx is copied to the ext idx slot (visible loop variable in the loop body)
                     extIdxSlot->d_val = idx;

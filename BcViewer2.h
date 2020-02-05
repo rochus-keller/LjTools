@@ -34,10 +34,10 @@ namespace Lua
         explicit BcViewer2(QWidget *parent = 0);
         bool loadFrom( const QString& );
         bool loadFrom( QIODevice*, const QString& path = QString() );
-        void gotoLine(int);
+        void gotoLine(quint32);
         bool saveTo( const QString&, bool stripped = false );
     signals:
-        void sigGotoLine(int lnr);
+        void sigGotoLine(quint32 lnr);
     protected slots:
         void onDoubleClicked(QTreeWidgetItem*,int);
         void onSelectionChanged();

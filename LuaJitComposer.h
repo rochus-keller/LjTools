@@ -51,11 +51,11 @@ namespace Lua
         enum { MAX_SLOTS = 250 };
         struct Interval
         {
-            uint d_from : 24;
-            uint d_slot : 8;
+            quint32 d_from;
             quint32 d_to;
             void* d_payload;
-            Interval(uint from, uint to, void* pl):d_from(from),d_to(to),d_payload(pl),d_slot(0){}
+            quint8 d_slot;
+            Interval(quint32 from, quint32 to, void* pl):d_from(from),d_to(to),d_payload(pl),d_slot(0){}
         };
         typedef QList<Interval> Intervals;
         typedef std::bitset<MAX_SLOTS> SlotPool;
@@ -67,70 +67,70 @@ namespace Lua
 
         void clear();
 
-        int openFunction(quint8 parCount, const QByteArray& sourceRef, int firstLine = -1, int lastLine = -1 );
+        int openFunction(quint8 parCount, const QByteArray& sourceRef, quint32 firstLine = 0, quint32 lastLine = 0 );
         bool closeFunction(quint8 frameSize);
 
-        bool addAbc( JitBytecode::Op, quint8 a, quint8 b, quint8 c, int line = -1 );
-        bool addAd(JitBytecode::Op, quint8 a, quint16 d, int line = -1 );
+        bool addAbc( JitBytecode::Op, quint8 a, quint8 b, quint8 c, quint32 line = 0 );
+        bool addAd(JitBytecode::Op, quint8 a, quint16 d, quint32 line = 0 );
         int getCurPc() const;
         bool patch( quint32 pc, qint16 off );
 
-        bool ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
-        bool ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
-        bool ADD(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool CALL(SlotNr slot, quint8 numOfReturns = 0, quint8 numOfArgs = 0, int line = -1 );
-        bool CALLT(SlotNr slot, quint8 numOfArgs = 0, int line = -1 );
-        bool CAT(SlotNr dst, SlotNr from, SlotNr to, int line = -1 );
-        bool DIV(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
-        bool DIV(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
-        bool DIV(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool FNEW(SlotNr dst, quint16 func, int line = -1 );
-        bool FORI(SlotNr base, Jump offset, int line = -1 );
-        bool FORL(SlotNr base, Jump offset, int line = -1 );
-        bool GGET(SlotNr to, const QByteArray& name, int line  = -1 );
-        bool GSET(SlotNr value, const QByteArray& name, int line  = -1 );
-        bool ISGE(SlotNr lhs, SlotNr rhs, int line = -1 ); // lhs >= rhs
-        bool ISGT(SlotNr lhs, SlotNr rhs, int line = -1 ); // lhs > rhs
-        bool ISLE(SlotNr lhs, SlotNr rhs, int line = -1 ); // lhs <= rhs
-        bool ISLT(SlotNr lhs, SlotNr rhs, int line = -1 ); // lhs < rhs
-        bool ISEQ(SlotNr lhs, const QVariant& rhs, int line = -1 ); // lhs == rhs
-        bool ISEQ(SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool ISNE(SlotNr lhs, const QVariant& rhs, int line = -1 ); // lhs != rhs
-        bool ISNE(SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool ISF(SlotNr slot, int line = -1 );
-        bool ISFC(SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool IST(SlotNr slot, int line = -1 );
-        bool ISTC(SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool JMP(SlotNr base, Jump offset, int line = -1 );
-        bool KNIL(SlotNr base, quint8 len = 1, int line = -1 );
-        bool KSET(SlotNr dst, const QVariant& , int line = -1 );
-        bool LEN(SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool LOOP(SlotNr base, Jump offset, int line = -1 );
-        bool MOD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
-        bool MOD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
-        bool MOD(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool MOV(SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool MUL(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
-        bool MUL(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
-        bool MUL(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool NOT(SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool POW(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool RET(SlotNr slot, quint8 len, int line = -1 );
-        bool RET(int line = -1 );
-        bool SUB(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line = -1 );
-        bool SUB(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line = -1 );
-        bool SUB(SlotNr dst, SlotNr lhs, SlotNr rhs, int line = -1 );
-        bool TDUP(SlotNr dst, const QVariant& constTable, int line = -1 );
-        bool TGET(SlotNr to, SlotNr table, quint8 index, int line = -1 );
-        bool TGET(SlotNr to, SlotNr table, const QVariant&  index, int line = -1 );
-        bool TNEW(SlotNr slot, quint16 arrSize = 0, quint8 hashSize = 0, int line = -1 );
-        bool TSET(SlotNr value, SlotNr table, quint8 index, int line = -1 );
-        bool TSET(SlotNr value, SlotNr table, const QVariant&  index, int line = -1 );
-        bool UCLO(SlotNr slot, Jump offset, int line = -1 );
-        bool UGET(SlotNr toSlot, UvNr fromUv, int line = -1 );
-        bool USET(UvNr toUv, SlotNr rhs, int line = -1 );
-        bool USET(UvNr toUv, const QVariant& rhs, int line = -1 );
-        bool UNM(SlotNr lhs, SlotNr rhs, int line = -1 );
+        bool ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line = 0 );
+        bool ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line = 0 );
+        bool ADD(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool CALL(SlotNr slot, quint8 numOfReturns = 0, quint8 numOfArgs = 0, quint32 line = 0 );
+        bool CALLT(SlotNr slot, quint8 numOfArgs = 0, quint32 line = 0 );
+        bool CAT(SlotNr dst, SlotNr from, SlotNr to, quint32 line = 0 );
+        bool DIV(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line = 0 );
+        bool DIV(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line = 0 );
+        bool DIV(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool FNEW(SlotNr dst, quint16 func, quint32 line = 0 );
+        bool FORI(SlotNr base, Jump offset, quint32 line = 0 );
+        bool FORL(SlotNr base, Jump offset, quint32 line = 0 );
+        bool GGET(SlotNr to, const QByteArray& name, quint32 line = 0 );
+        bool GSET(SlotNr value, const QByteArray& name, quint32 line = 0 );
+        bool ISGE(SlotNr lhs, SlotNr rhs, quint32 line = 0 ); // lhs >= rhs
+        bool ISGT(SlotNr lhs, SlotNr rhs, quint32 line = 0 ); // lhs > rhs
+        bool ISLE(SlotNr lhs, SlotNr rhs, quint32 line = 0 ); // lhs <= rhs
+        bool ISLT(SlotNr lhs, SlotNr rhs, quint32 line = 0 ); // lhs < rhs
+        bool ISEQ(SlotNr lhs, const QVariant& rhs, quint32 line = 0 ); // lhs == rhs
+        bool ISEQ(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool ISNE(SlotNr lhs, const QVariant& rhs, quint32 line = 0 ); // lhs != rhs
+        bool ISNE(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool ISF(SlotNr slot, quint32 line = 0 );
+        bool ISFC(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool IST(SlotNr slot, quint32 line = 0 );
+        bool ISTC(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool JMP(SlotNr base, Jump offset, quint32 line = 0 );
+        bool KNIL(SlotNr base, quint8 len = 1, quint32 line = 0 );
+        bool KSET(SlotNr dst, const QVariant& , quint32 line = 0 );
+        bool LEN(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool LOOP(SlotNr base, Jump offset, quint32 line = 0 );
+        bool MOD(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line = 0 );
+        bool MOD(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line = 0 );
+        bool MOD(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool MOV(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool MUL(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line = 0 );
+        bool MUL(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line = 0 );
+        bool MUL(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool NOT(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool POW(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool RET(SlotNr slot, quint8 len, quint32 line = 0 );
+        bool RET(quint32 line = 0 );
+        bool SUB(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line = 0 );
+        bool SUB(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line = 0 );
+        bool SUB(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+        bool TDUP(SlotNr dst, const QVariant& constTable, quint32 line = 0 );
+        bool TGET(SlotNr to, SlotNr table, quint8 index, quint32 line = 0 );
+        bool TGET(SlotNr to, SlotNr table, const QVariant&  index, quint32 line = 0 );
+        bool TNEW(SlotNr slot, quint16 arrSize = 0, quint8 hashSize = 0, quint32 line = 0 );
+        bool TSET(SlotNr value, SlotNr table, quint8 index, quint32 line = 0 );
+        bool TSET(SlotNr value, SlotNr table, const QVariant&  index, quint32 line = 0 );
+        bool UCLO(SlotNr slot, Jump offset, quint32 line = 0 );
+        bool UGET(SlotNr toSlot, UvNr fromUv, quint32 line = 0 );
+        bool USET(UvNr toUv, SlotNr rhs, quint32 line = 0 );
+        bool USET(UvNr toUv, const QVariant& rhs, quint32 line = 0 );
+        bool UNM(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
 
         void setUpvals( const UpvalList& );
         void setVarNames( const VarNameList& );
@@ -158,7 +158,7 @@ namespace Lua
             QHash<QByteArray,int> d_var;
         };
 
-        bool addOpImp( JitBytecode::Op, quint8 a, quint8 b, quint16 cd, int line = -1 );
+        bool addOpImp( JitBytecode::Op, quint8 a, quint8 b, quint16 cd, quint32 line = 0 );
     };
 }
 

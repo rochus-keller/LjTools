@@ -30,6 +30,19 @@ using namespace Lua;
 
 enum { LnrType = 10 };
 
+enum { ROW_BIT_LEN = 19, COL_BIT_LEN = 32 - ROW_BIT_LEN - 1, MSB = 0x80000000 };
+static bool isPacked( quint32 rowCol ) { return rowCol & MSB; }
+static quint32 unpackCol(quint32 rowCol ) { return rowCol & ( 1 << COL_BIT_LEN ) - 1; }
+static quint32 unpackRow(quint32 rowCol ) { return ( ( rowCol & ~MSB ) >> COL_BIT_LEN ); }
+
+static QString printRowCol( quint32 rowCol )
+{
+    if( isPacked(rowCol) )
+        return QString("%1:%2").arg(unpackRow(rowCol)).arg(unpackCol(rowCol));
+    else
+        return QString::number(rowCol);
+}
+
 BcViewer2::BcViewer2(QWidget *parent) : QTreeWidget(parent)
 {
     setHeaderHidden(false);
@@ -79,9 +92,10 @@ bool BcViewer2::loadFrom(QIODevice* in, const QString& path)
     return true;
 }
 
-void BcViewer2::gotoLine(int lnr)
+void BcViewer2::gotoLine(quint32 lnr)
 {
-    QList<QTreeWidgetItem *> items = findItems( QString::number(lnr), Qt::MatchExactly | Qt::MatchRecursive, 2 );
+    const QString rowCol = printRowCol(lnr);
+    QList<QTreeWidgetItem *> items = findItems( rowCol, Qt::MatchExactly | Qt::MatchRecursive, 2 );
     foreach( QTreeWidgetItem * i, items )
     {
         if( i->type() == LnrType )
@@ -108,7 +122,7 @@ bool BcViewer2::saveTo(const QString& path, bool stripped)
 void BcViewer2::onDoubleClicked(QTreeWidgetItem* i, int)
 {
     if( i && i->type() == LnrType )
-        emit sigGotoLine(i->text(2).toUInt());
+        emit sigGotoLine(i->data(2,Qt::UserRole).toUInt());
 }
 
 void BcViewer2::onSelectionChanged()
@@ -138,6 +152,7 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
     if( !d_bc.isStripped() )
     {
         fi->setText(2,QString::number(f.d_firstline));
+        fi->setData(2,Qt::UserRole,f.d_firstline);
         fi->setText(3,QString::number(f.d_firstline+f.d_numline-1));
     }
     if( f.d_flags & 0x02 )
@@ -208,7 +223,8 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
             if( !f.d_lines.isEmpty() )
             {
                 Q_ASSERT( f.d_byteCodes.size() == f.d_lines.size() );
-                ci->setText(2,QString::number(f.d_lines[j]));
+                ci->setText(2,printRowCol(f.d_lines[j]));
+                ci->setData(2,Qt::UserRole,f.d_lines[j] );
             }
             ci->setText(3, Ljas::Disasm::renderArg(&f,bc.d_ta, bc.d_a, j, false, true ) );
             ci->setToolTip(3, ci->text(3) );

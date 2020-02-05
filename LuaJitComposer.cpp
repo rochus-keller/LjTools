@@ -34,20 +34,20 @@ void JitComposer::clear()
     d_hasDebugInfo = false;
 }
 
-int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, int firstLine, int lastLine)
+int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, quint32 firstLine, quint32 lastLine)
 {
     if( d_bc.d_funcs.isEmpty() )
         d_bc.d_name = sourceRef;
     JitBytecode::FuncRef f(new Func());
     if( d_bc.d_fstack.isEmpty() )
     {
-        if( firstLine <= 0 || lastLine <= 0 )
+        if( firstLine == 0 || lastLine == 0 )
             d_hasDebugInfo = false;
         else
             d_hasDebugInfo = true;
     }else
     {
-        if( firstLine <= 0 || lastLine <= 0 )
+        if( firstLine == 0 || lastLine == 0 )
         {
             if( d_hasDebugInfo )
                 qWarning() << "JitComposer::openFunction: expecting debug information";
@@ -91,7 +91,7 @@ bool JitComposer::closeFunction(quint8 frameSize)
     return true;
 }
 
-bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, int line)
+bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, quint32 line)
 {
     if( d_bc.d_fstack.isEmpty() )
         return false;
@@ -108,7 +108,7 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, i
     {
         bc |= cd << 16;
     }
-    if( line >= 0 )
+    if( line > 0 )
     {
         if( d_hasDebugInfo )
             d_bc.d_fstack.back()->d_lines.append(line);
@@ -123,12 +123,12 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, i
     return true;
 }
 
-bool JitComposer::addAbc(JitBytecode::Op op, quint8 a, quint8 b, quint8 c, int line)
+bool JitComposer::addAbc(JitBytecode::Op op, quint8 a, quint8 b, quint8 c, quint32 line)
 {
     return addOpImp( op, a, b, c, line );
 }
 
-bool JitComposer::addAd(JitBytecode::Op op, quint8 a, quint16 d, int line)
+bool JitComposer::addAd(JitBytecode::Op op, quint8 a, quint16 d, quint32 line)
 {
     return addOpImp( op, a, 0, d, line );
 }
@@ -160,7 +160,7 @@ bool JitComposer::patch(quint32 pc, qint16 off)
     return false;
 }
 
-bool JitComposer::ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+bool JitComposer::ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line)
 {
     if( JitBytecode::isNumber(lhs) )
         return addAbc(JitBytecode::OP_ADDNV, dst, rhs, getConstSlot(lhs), line );
@@ -168,7 +168,7 @@ bool JitComposer::ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
         return false;
 }
 
-bool JitComposer::ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+bool JitComposer::ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line)
 {
     if( JitBytecode::isNumber(rhs) )
         return addAbc(JitBytecode::OP_ADDVN, dst, lhs, getConstSlot(rhs), line );
@@ -176,12 +176,12 @@ bool JitComposer::ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
         return false;
 }
 
-bool JitComposer::ADD(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ADD(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAbc(JitBytecode::OP_ADDVV, dst, lhs, rhs, line );
 }
 
-bool JitComposer::SUB(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+bool JitComposer::SUB(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line)
 {
     if( JitBytecode::isNumber(lhs) )
         return addAbc(JitBytecode::OP_SUBNV, dst, rhs, getConstSlot(lhs), line );
@@ -189,7 +189,7 @@ bool JitComposer::SUB(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
         return false;
 }
 
-bool JitComposer::SUB(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+bool JitComposer::SUB(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line)
 {
     if( JitBytecode::isNumber(rhs) )
         return addAbc(JitBytecode::OP_SUBVN, dst, lhs, getConstSlot(rhs), line );
@@ -197,12 +197,12 @@ bool JitComposer::SUB(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
         return false;
 }
 
-bool JitComposer::SUB(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::SUB(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAbc(JitBytecode::OP_SUBVV, dst, lhs, rhs, line );
 }
 
-bool JitComposer::TDUP(SlotNr dst, const QVariant& constTable, int line )
+bool JitComposer::TDUP(SlotNr dst, const QVariant& constTable, quint32 line )
 {
     if( constTable.canConvert<JitBytecode::ConstTable>() )
         return addAd(JitBytecode::OP_TDUP, dst, getConstSlot(constTable), line );
@@ -210,12 +210,12 @@ bool JitComposer::TDUP(SlotNr dst, const QVariant& constTable, int line )
         return false;
 }
 
-bool JitComposer::TGET(SlotNr to, SlotNr table, quint8 index, int line)
+bool JitComposer::TGET(SlotNr to, SlotNr table, quint8 index, quint32 line)
 {
     return addAbc(JitBytecode::OP_TGETV, to, table, index, line );
 }
 
-bool JitComposer::TGET(SlotNr to, SlotNr table, const QVariant& index, int line)
+bool JitComposer::TGET(SlotNr to, SlotNr table, const QVariant& index, quint32 line)
 {
     if( JitBytecode::isString(index)  )
         return addAbc(JitBytecode::OP_TGETS, to, table, getConstSlot(index), line );
@@ -225,7 +225,7 @@ bool JitComposer::TGET(SlotNr to, SlotNr table, const QVariant& index, int line)
         return false;
 }
 
-bool JitComposer::MUL(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+bool JitComposer::MUL(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line)
 {
     if( JitBytecode::isNumber(lhs) )
         return addAbc(JitBytecode::OP_MULNV, dst, rhs, getConstSlot(lhs), line );
@@ -233,7 +233,7 @@ bool JitComposer::MUL(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
         return false;
 }
 
-bool JitComposer::MUL(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+bool JitComposer::MUL(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line)
 {
     if( JitBytecode::isNumber(rhs) )
         return addAbc(JitBytecode::OP_MULVN, dst, lhs, getConstSlot(rhs), line );
@@ -241,12 +241,12 @@ bool JitComposer::MUL(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
         return false;
 }
 
-bool JitComposer::MUL(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::MUL(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAbc(JitBytecode::OP_MULVV, dst, lhs, rhs, line );
 }
 
-bool JitComposer::DIV(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+bool JitComposer::DIV(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line)
 {
     if( JitBytecode::isNumber(lhs) )
         return addAbc(JitBytecode::OP_DIVNV, dst, rhs, getConstSlot(lhs), line );
@@ -254,7 +254,7 @@ bool JitComposer::DIV(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
         return false;
 }
 
-bool JitComposer::DIV(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+bool JitComposer::DIV(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line)
 {
     if( JitBytecode::isNumber(rhs) )
         return addAbc(JitBytecode::OP_DIVVN, dst, lhs, getConstSlot(rhs), line );
@@ -262,27 +262,27 @@ bool JitComposer::DIV(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
         return false;
 }
 
-bool JitComposer::DIV(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::DIV(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAbc(JitBytecode::OP_DIVVV, dst, lhs, rhs, line );
 }
 
-bool JitComposer::FNEW(SlotNr dst, quint16 func, int line)
+bool JitComposer::FNEW(SlotNr dst, quint16 func, quint32 line)
 {
     return addAd(JitBytecode::OP_FNEW, dst, func, line );
 }
 
-bool JitComposer::FORI(SlotNr base, Jump offset, int line)
+bool JitComposer::FORI(SlotNr base, Jump offset, quint32 line)
 {
     return addAd(JitBytecode::OP_FORI, base, quint16( offset + JitBytecode::Instruction::JumpBias ), line );
 }
 
-bool JitComposer::FORL(SlotNr base, Jump offset, int line)
+bool JitComposer::FORL(SlotNr base, Jump offset, quint32 line)
 {
     return addAd(JitBytecode::OP_FORL, base, quint16( offset + JitBytecode::Instruction::JumpBias ), line );
 }
 
-bool JitComposer::MOD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
+bool JitComposer::MOD(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line)
 {
     if( JitBytecode::isNumber(lhs) )
         return addAbc(JitBytecode::OP_MODNV, dst, rhs, getConstSlot(lhs), line );
@@ -290,7 +290,7 @@ bool JitComposer::MOD(SlotNr dst, const QVariant& lhs, SlotNr rhs, int line)
         return false;
 }
 
-bool JitComposer::MOD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
+bool JitComposer::MOD(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line)
 {
     if( JitBytecode::isNumber(rhs) )
         return addAbc(JitBytecode::OP_MODVN, dst, lhs, getConstSlot(rhs), line );
@@ -298,29 +298,29 @@ bool JitComposer::MOD(SlotNr dst, SlotNr lhs, const QVariant& rhs, int line)
         return false;
 }
 
-bool JitComposer::MOD(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::MOD(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAbc(JitBytecode::OP_MODVV, dst, lhs, rhs, line );
 }
 
-bool JitComposer::CALL(SlotNr slot, quint8 numOfReturns, quint8 numOfArgs, int line)
+bool JitComposer::CALL(SlotNr slot, quint8 numOfReturns, quint8 numOfArgs, quint32 line)
 {
     // Operand C is one plus the number of fixed arguments.
     // Operand B is one plus the number of return values (MULTRES is not supported)
     return addAbc(JitBytecode::OP_CALL, slot, numOfReturns + 1, numOfArgs + 1, line );
 }
 
-bool JitComposer::CALLT(SlotNr slot, quint8 numOfArgs, int line)
+bool JitComposer::CALLT(SlotNr slot, quint8 numOfArgs, quint32 line)
 {
     return addAd(JitBytecode::OP_CALLT, slot, numOfArgs + 1, line );
 }
 
-bool JitComposer::CAT(SlotNr dst, SlotNr from, SlotNr to, int line)
+bool JitComposer::CAT(SlotNr dst, SlotNr from, SlotNr to, quint32 line)
 {
     return addAbc(JitBytecode::OP_CAT, dst, from, to, line );
 }
 
-bool JitComposer::KSET(SlotNr dst, const QVariant& v, int line )
+bool JitComposer::KSET(SlotNr dst, const QVariant& v, quint32 line )
 {
     if( JitBytecode::isString( v ) )
         return addAd(JitBytecode::OP_KSTR, dst, getConstSlot(v), line );
@@ -343,32 +343,32 @@ bool JitComposer::KSET(SlotNr dst, const QVariant& v, int line )
     return false;
 }
 
-bool JitComposer::LEN(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::LEN(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_LEN, lhs, rhs, line );
 }
 
-bool JitComposer::LOOP(SlotNr base, Jump offset, int line)
+bool JitComposer::LOOP(SlotNr base, Jump offset, quint32 line)
 {
     return addAd(JitBytecode::OP_LOOP, base, (quint16)offset, line );
 }
 
-bool JitComposer::MOV(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::MOV(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_MOV, lhs, rhs, line );
 }
 
-bool JitComposer::NOT(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::NOT(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_NOT, lhs, rhs, line );
 }
 
-bool JitComposer::POW(SlotNr dst, SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::POW(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_POW, lhs, rhs, line );
 }
 
-bool JitComposer::RET(SlotNr slot, quint8 len, int line)
+bool JitComposer::RET(SlotNr slot, quint8 len, quint32 line)
 {
     // Operand D is one plus the number of results to return.
     if( slot < 0 )
@@ -379,22 +379,22 @@ bool JitComposer::RET(SlotNr slot, quint8 len, int line)
         return addAd(JitBytecode::OP_RET, slot, len + 1, line );
 }
 
-bool JitComposer::RET(int line)
+bool JitComposer::RET(quint32 line)
 {
     return addAd(JitBytecode::OP_RET0, 0, 1, line );
 }
 
-bool JitComposer::TNEW(SlotNr slot, quint16 arrSize, quint8 hashSize, int line)
+bool JitComposer::TNEW(SlotNr slot, quint16 arrSize, quint8 hashSize, quint32 line)
 {
     return addAd(JitBytecode::OP_TNEW, slot, arrSize + ( hashSize << 11 ), line );
 }
 
-bool JitComposer::TSET(SlotNr value, SlotNr table, quint8 index, int line)
+bool JitComposer::TSET(SlotNr value, SlotNr table, quint8 index, quint32 line)
 {
     return addAbc(JitBytecode::OP_TSETV, value, table, index, line );
 }
 
-bool JitComposer::TSET(SlotNr value, SlotNr table, const QVariant& index, int line)
+bool JitComposer::TSET(SlotNr value, SlotNr table, const QVariant& index, quint32 line)
 {
     if( JitBytecode::isString(index)  )
         return addAbc(JitBytecode::OP_TSETS, value, table, getConstSlot(index), line );
@@ -404,22 +404,22 @@ bool JitComposer::TSET(SlotNr value, SlotNr table, const QVariant& index, int li
         return false;
 }
 
-bool JitComposer::UCLO(SlotNr slot, Jump offset, int line)
+bool JitComposer::UCLO(SlotNr slot, Jump offset, quint32 line)
 {
     return addAd(JitBytecode::OP_UCLO, slot, quint16(offset+JitBytecode::Instruction::JumpBias), line );
 }
 
-bool JitComposer::UGET(SlotNr toSlot, UvNr fromUv, int line)
+bool JitComposer::UGET(SlotNr toSlot, UvNr fromUv, quint32 line)
 {
     return addAd(JitBytecode::OP_UGET, toSlot, fromUv, line );
 }
 
-bool JitComposer::USET(UvNr toUv, SlotNr rhs, int line)
+bool JitComposer::USET(UvNr toUv, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_USETV, toUv, rhs, line );
 }
 
-bool JitComposer::USET(UvNr toUv, const QVariant& rhs, int line)
+bool JitComposer::USET(UvNr toUv, const QVariant& rhs, quint32 line)
 {
     if( JitBytecode::isString(rhs) )
         return addAd(JitBytecode::OP_USETS, toUv, getConstSlot(rhs), line );
@@ -430,42 +430,42 @@ bool JitComposer::USET(UvNr toUv, const QVariant& rhs, int line)
     return false;
 }
 
-bool JitComposer::UNM(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::UNM(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_UNM, lhs, rhs, line );
 }
 
-bool JitComposer::GGET(SlotNr to, const QByteArray& name, int line)
+bool JitComposer::GGET(SlotNr to, const QByteArray& name, quint32 line)
 {
     return addAd(JitBytecode::OP_GGET, to, getConstSlot(name), line );
 }
 
-bool JitComposer::GSET(SlotNr value, const QByteArray& name, int line)
+bool JitComposer::GSET(SlotNr value, const QByteArray& name, quint32 line)
 {
     return addAd(JitBytecode::OP_GSET, value, getConstSlot(QVariant::fromValue(name)), line );
 }
 
-bool JitComposer::ISGE(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ISGE(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_ISGE, lhs, rhs, line );
 }
 
-bool JitComposer::ISGT(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ISGT(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_ISGT, lhs, rhs, line );
 }
 
-bool JitComposer::ISLE(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ISLE(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_ISLE, lhs, rhs, line );
 }
 
-bool JitComposer::ISLT(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ISLT(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_ISLT, lhs, rhs, line );
 }
 
-bool JitComposer::ISEQ(SlotNr lhs, const QVariant& rhs, int line)
+bool JitComposer::ISEQ(SlotNr lhs, const QVariant& rhs, quint32 line)
 {
     if( JitBytecode::isNumber(rhs) )
         return addAd(JitBytecode::OP_ISEQN, lhs, getConstSlot(rhs), line );
@@ -477,12 +477,12 @@ bool JitComposer::ISEQ(SlotNr lhs, const QVariant& rhs, int line)
         return false;
 }
 
-bool JitComposer::ISEQ(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ISEQ(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_ISEQV, lhs, rhs, line );
 }
 
-bool JitComposer::ISNE(SlotNr lhs, const QVariant& rhs, int line)
+bool JitComposer::ISNE(SlotNr lhs, const QVariant& rhs, quint32 line)
 {
     if( JitBytecode::isNumber(rhs) )
         return addAd(JitBytecode::OP_ISNEN, lhs, getConstSlot(rhs), line );
@@ -494,37 +494,37 @@ bool JitComposer::ISNE(SlotNr lhs, const QVariant& rhs, int line)
         return false;
 }
 
-bool JitComposer::ISNE(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ISNE(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_ISNEV, lhs, rhs, line );
 }
 
-bool JitComposer::ISF(SlotNr slot, int line)
+bool JitComposer::ISF(SlotNr slot, quint32 line)
 {
     return addAd(JitBytecode::OP_ISF, 0, slot, line );
 }
 
-bool JitComposer::ISFC(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ISFC(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_ISFC, lhs, rhs, line );
 }
 
-bool JitComposer::IST(SlotNr slot, int line)
+bool JitComposer::IST(SlotNr slot, quint32 line)
 {
     return addAd(JitBytecode::OP_IST, 0, slot, line );
 }
 
-bool JitComposer::ISTC(SlotNr lhs, SlotNr rhs, int line)
+bool JitComposer::ISTC(SlotNr lhs, SlotNr rhs, quint32 line)
 {
     return addAd(JitBytecode::OP_ISTC, lhs, rhs, line );
 }
 
-bool JitComposer::JMP(SlotNr base, Jump offset, int line)
+bool JitComposer::JMP(SlotNr base, Jump offset, quint32 line)
 {
     return addAd(JitBytecode::OP_JMP, base, quint16(offset + JitBytecode::Instruction::JumpBias), line );
 }
 
-bool JitComposer::KNIL(SlotNr base, quint8 len, int line )
+bool JitComposer::KNIL(SlotNr base, quint8 len, quint32 line )
 {
     return addAd(JitBytecode::OP_KNIL, base, base + len - 1, line );
 }
