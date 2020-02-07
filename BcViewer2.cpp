@@ -19,6 +19,7 @@
 
 #include "BcViewer2.h"
 #include "LjDisasm.h"
+#include "LuaJitComposer.h"
 #include <QHeaderView>
 #include <QFile>
 #include <QTextStream>
@@ -30,15 +31,10 @@ using namespace Lua;
 
 enum { LnrType = 10 };
 
-enum { ROW_BIT_LEN = 19, COL_BIT_LEN = 32 - ROW_BIT_LEN - 1, MSB = 0x80000000 };
-static bool isPacked( quint32 rowCol ) { return rowCol & MSB; }
-static quint32 unpackCol(quint32 rowCol ) { return rowCol & ( 1 << COL_BIT_LEN ) - 1; }
-static quint32 unpackRow(quint32 rowCol ) { return ( ( rowCol & ~MSB ) >> COL_BIT_LEN ); }
-
 static QString printRowCol( quint32 rowCol )
 {
-    if( isPacked(rowCol) )
-        return QString("%1:%2").arg(unpackRow(rowCol)).arg(unpackCol(rowCol));
+    if( JitComposer::isPacked(rowCol) )
+        return QString("%1:%2").arg(JitComposer::unpackRow(rowCol)).arg(JitComposer::unpackCol(rowCol));
     else
         return QString::number(rowCol);
 }
@@ -94,17 +90,38 @@ bool BcViewer2::loadFrom(QIODevice* in, const QString& path)
 
 void BcViewer2::gotoLine(quint32 lnr)
 {
-    const QString rowCol = printRowCol(lnr);
-    QList<QTreeWidgetItem *> items = findItems( rowCol, Qt::MatchExactly | Qt::MatchRecursive, 2 );
-    foreach( QTreeWidgetItem * i, items )
+    Items::const_iterator i = d_items.find(JitComposer::unpackRow2(lnr));
+    if( i != d_items.end() )
     {
-        if( i->type() == LnrType )
+        QTreeWidgetItem * hit = 0;
+        foreach( QTreeWidgetItem * item, i.value() )
         {
-            scrollToItem(i);
-            setCurrentItem(i);
-            i->setSelected(true);
-            break;
+            const quint32 cur = item->data(2,Qt::UserRole).toUInt();
+            if( lnr == cur )
+            {
+                hit = item;
+                break;
+            }
+            if( lnr < cur )
+            {
+                break;
+            }
+            hit = item;
         }
+        if( hit == 0 )
+        {
+            hit = i.value().first();
+        }
+        scrollToItem(hit);
+        setCurrentItem(hit);
+        hit->setSelected(true);
+        return;
+    }
+
+    if( currentItem() )
+    {
+        currentItem()->setSelected(false);
+        setCurrentItem(0);
     }
 }
 
@@ -151,9 +168,18 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
     fi->setFont(0,bold);
     if( !d_bc.isStripped() )
     {
-        fi->setText(2,QString::number(f.d_firstline));
+        const quint32 lastline = f.d_firstline+f.d_numline-1;
+        if( JitComposer::isPacked(f.d_firstline) )
+        {
+            fi->setText(2,QString::number(JitComposer::unpackRow(f.d_firstline)));
+            fi->setText(3,QString::number(JitComposer::unpackRow(lastline)));
+        }else
+        {
+            fi->setText(2,QString::number(f.d_firstline));
+            fi->setText(3,QString::number(lastline));
+        }
         fi->setData(2,Qt::UserRole,f.d_firstline);
-        fi->setText(3,QString::number(f.d_firstline+f.d_numline-1));
+        d_items[JitComposer::unpackRow2(f.d_firstline)].append(fi);
     }
     if( f.d_flags & 0x02 )
         fi->setText(4,QString("%1+varg").arg(f.d_numparams));
@@ -225,6 +251,7 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
                 Q_ASSERT( f.d_byteCodes.size() == f.d_lines.size() );
                 ci->setText(2,printRowCol(f.d_lines[j]));
                 ci->setData(2,Qt::UserRole,f.d_lines[j] );
+                d_items[JitComposer::unpackRow2(f.d_lines[j])].append(ci);
             }
             ci->setText(3, Ljas::Disasm::renderArg(&f,bc.d_ta, bc.d_a, j, false, true ) );
             ci->setToolTip(3, ci->text(3) );
@@ -240,6 +267,7 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
 void BcViewer2::fillTree()
 {
     clear();
+    d_items.clear();
 
 #ifdef LINEAR
     for( int i = 0; i < d_bc.getFuncs().size(); i++ )

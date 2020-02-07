@@ -761,29 +761,33 @@ QByteArray JitBytecode::writeDbgInfo(JitBytecode::Function* f)
     QBuffer buf;
     buf.open(QIODevice::WriteOnly|QIODevice::Unbuffered);
 
-    quint32 sizeli = f->d_byteCodes.size();
-    sizeli = sizeli << (f->d_numline < 256 ? 0 : ( f->d_numline < 65536 ? 1 : 2 ) );
-
     char b[4];
     if( f->d_numline < 256 )
     {
         // 1 byte per number
+        quint8 tmp;
+        quint32 len;
         for( int i = 0; i < f->d_lines.size(); i++ )
         {
-            if( f->d_lines[i] == 0 )
-                writeByte( &buf, 0 );
-            else
-                writeByte( &buf, f->d_lines[i] - f->d_firstline );
+            len = f->d_lines[i] == 0 ? 0 : f->d_lines[i] - f->d_firstline;
+            if( len >= 256 )
+                qWarning() << "line number overflow at" << f->d_sourceFile << f->d_lines[i];
+            tmp = len;
+            writeByte( &buf, tmp );
         }
     }else if( f->d_numline < 65536 )
     {
         // 2 bytes per number
         quint16 tmp;
+        quint32 len;
         for( int i = 0; i < f->d_lines.size(); i++ )
         {
-            tmp = f->d_lines[i] - f->d_firstline;
-            memcpy( b, &tmp, 2 );
-            buf.write(b,2);
+            len = f->d_lines[i] == 0 ? 0 : f->d_lines[i] - f->d_firstline;
+            if( len >= 65536 )
+                qWarning() << "line number overflow at" << f->d_sourceFile << f->d_lines[i];
+            tmp = len;
+            memcpy( b, &tmp, sizeof(tmp) );
+            buf.write(b,sizeof(tmp));
         }
     }else
     {
@@ -791,9 +795,9 @@ QByteArray JitBytecode::writeDbgInfo(JitBytecode::Function* f)
         quint32 tmp;
         for( int i = 0; i < f->d_lines.size(); i++ )
         {
-            tmp = f->d_lines[i] - f->d_firstline;
-            memcpy( b, &tmp, 4 );
-            buf.write(b,2);
+            tmp = f->d_lines[i] == 0 ? 0 : f->d_lines[i] - f->d_firstline;
+            memcpy( b, &tmp, sizeof(tmp) );
+            buf.write(b,sizeof(tmp));
         }
     }
 

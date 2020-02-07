@@ -62,6 +62,7 @@ int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, quin
     {
         f->d_firstline = firstLine;
         f->d_numline = lastLine - firstLine + 1;
+        // intentionally not unpack so that the larger numline determines larger word length
     }else
     {
         f->d_firstline = 0;

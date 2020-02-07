@@ -46,6 +46,8 @@ namespace Lua
         void fillTree();
     private:
         JitBytecode d_bc;
+        typedef QMap<quint32,QList<QTreeWidgetItem*> > Items;
+        Items d_items;
     };
 }
 
