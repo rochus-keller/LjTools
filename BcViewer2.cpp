@@ -39,7 +39,7 @@ static QString printRowCol( quint32 rowCol )
         return QString::number(rowCol);
 }
 
-BcViewer2::BcViewer2(QWidget *parent) : QTreeWidget(parent)
+BcViewer2::BcViewer2(QWidget *parent) : QTreeWidget(parent),d_lock(false)
 {
     setHeaderHidden(false);
     setAlternatingRowColors(true);
@@ -62,6 +62,7 @@ BcViewer2::BcViewer2(QWidget *parent) : QTreeWidget(parent)
 
 bool BcViewer2::loadFrom(const QString& path)
 {
+    Q_ASSERT( !d_lock );
     if( !d_bc.parse(path) )
         return false;
 
@@ -72,6 +73,7 @@ bool BcViewer2::loadFrom(const QString& path)
 //    orig.copy("orig.bin");
 //    d_bc.write("generated.bin");
 
+    d_bc.calcVarNames();
     fillTree();
 
     return true;
@@ -79,6 +81,7 @@ bool BcViewer2::loadFrom(const QString& path)
 
 bool BcViewer2::loadFrom(QIODevice* in, const QString& path)
 {
+    Q_ASSERT( !d_lock );
     if( !d_bc.parse(in,path) )
         return false;
 
@@ -90,6 +93,8 @@ bool BcViewer2::loadFrom(QIODevice* in, const QString& path)
 
 void BcViewer2::gotoLine(quint32 lnr)
 {
+    Q_ASSERT( !d_lock );
+    d_lock = true;
     Items::const_iterator i = d_items.find(JitComposer::unpackRow2(lnr));
     if( i != d_items.end() )
     {
@@ -112,9 +117,10 @@ void BcViewer2::gotoLine(quint32 lnr)
         {
             hit = i.value().first();
         }
-        scrollToItem(hit);
+        scrollToItem(hit,QAbstractItemView::PositionAtCenter);
         setCurrentItem(hit);
         hit->setSelected(true);
+        d_lock = false;
         return;
     }
 
@@ -123,6 +129,7 @@ void BcViewer2::gotoLine(quint32 lnr)
         currentItem()->setSelected(false);
         setCurrentItem(0);
     }
+    d_lock = false;
 }
 
 bool BcViewer2::saveTo(const QString& path, bool stripped)
@@ -134,6 +141,13 @@ bool BcViewer2::saveTo(const QString& path, bool stripped)
         return false;
     }
     return Ljas::Disasm::disassemble( d_bc, &f, QString(), stripped );
+}
+
+void BcViewer2::clear()
+{
+    Q_ASSERT( !d_lock );
+    d_items.clear();
+    QTreeWidget::clear();
 }
 
 void BcViewer2::onDoubleClicked(QTreeWidgetItem* i, int)
@@ -267,7 +281,6 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
 void BcViewer2::fillTree()
 {
     clear();
-    d_items.clear();
 
 #ifdef LINEAR
     for( int i = 0; i < d_bc.getFuncs().size(); i++ )

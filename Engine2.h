@@ -36,6 +36,14 @@ namespace Lua
 	//. alle Kunden von Lua ab (nur typedef oben ist sichtbar).
 	//. Diese Klasse ist generisch und in keiner Weise mit Spec Assoziiert.
 
+    class Engine2;
+
+    class DbgShell // interface
+    {
+    public:
+        virtual void handleBreak( Engine2*, const QByteArray& source, quint32 line ) = 0;
+    };
+
     class Engine2 : public QObject
 	{
         Q_OBJECT
@@ -48,22 +56,12 @@ namespace Lua
 		void addLibrary( Lib );
 		void addStdLibs();
         void setPrintToStdout(bool on) { d_printToStdout = on; }
-		void setPluginPath( const char*, bool cpath = false);
-		QByteArray getPluginPath(bool cpath = false) const;
 
         typedef QSet<quint32> Breaks; // Zeile, zero-based
         typedef QMap<QByteArray,Breaks> BreaksPerScript; // @Filename oder :RepositoryName
 
 		// Debugging
-		class DbgShell // interface
-		{
-		public:
-			DbgShell() {}
-			virtual ~DbgShell() {}
-
-			virtual void handleBreak( Engine2*, const QByteArray& source, int line ) = 0;
-		};
-		void setDbgShell( DbgShell* ds ) { d_dbgShell = ds; }
+        void setDbgShell( DbgShell* ds ) { d_dbgShell = ds; }
 		void setDebug( bool on );
         bool isDebug() const { return d_debugging; }
 		enum DebugCommand { RunToNextLine, RunToBreakPoint, Abort, AbortSilently };
@@ -81,6 +79,18 @@ namespace Lua
         void addBreak( const QByteArray&, quint32 ); // inkl. : oder @ und one-based
         const Breaks& getBreaks( const QByteArray & ) const;
 		const QByteArray& getCurBinary() const { return d_curBinary; }
+        struct StackLevel
+        {
+            quint16 d_level;
+            bool d_inC;
+            QByteArray d_name;
+            QByteArray d_what;
+            QByteArray d_source;
+            quint32 d_line;
+            StackLevel():d_level(0),d_inC(false){}
+        };
+        typedef QList<StackLevel> StackLevels;
+        StackLevels getStackTrace() const;
 
 		static Engine2* getInst();
 		static void setInst( Engine2* );
@@ -88,7 +98,7 @@ namespace Lua
 
         lua_State* getCtx() const { return d_ctx; }
         int getActiveLevel() const { return d_activeLevel; }
-        void setActiveLevel(int level, const QByteArray& script = QByteArray(), int line = -1 );
+        void setActiveLevel(int level );
 
 		// Compile and Execute
         bool executeCmd( const QByteArray& source, const QByteArray& name = QByteArray() );
@@ -108,7 +118,6 @@ namespace Lua
         QByteArray getValueString(int arg) const;
         int pushLocalOrGlobal( const QByteArray& name );
         void pop(int count = 1);
-		void dumpStackFrom( int arg, const char *title = "" );
 
 		const QByteArray& getLastError() const { return d_lastError; }
 		const char* getVersion() const;
@@ -117,10 +126,13 @@ namespace Lua
 		void print( const char* );
 
 		enum MessageType {
-			Print,		// Ausgaben von print()	bzw. stdout
-			Error,		// Ausgaben von _ALERT bzw. stderr
+            Print,		// Ausgaben von print(), String mit \n
+            Error,		// Ausgaben von _ALERT , String mit \n
+            Cout,       // Ausgaben von Stdout, einzelne Zeichen
+            Cerr,       // Ausgaben von Stderr, einzelne Zeichen
 			LineHit,    // RunToNextLine ist eingetreten
 			BreakHit,   // RunToBreakPoint ist auf einen BreakPoint gestossen
+            ErrorHit,   // irgendwo im code wurde error() aufgerufen
 			BreakPoints,// Breakpoint Zufügen oder Löschen. d_title ist Scriptname
 			ActiveLevel,// Der aktive Level wurde verändert
 			Started,	// Beginne ein Script laufen zu lassen.
@@ -143,6 +155,7 @@ namespace Lua
 		virtual void notify( MessageType messageType, const QByteArray& val1 = "", int val2 = 0 );
     private:
 		static void debugHook(lua_State *L, lua_Debug *ar);
+        static int ErrHandler( lua_State* L );
         void notifyStart();
         void notifyEnd();
         static int _print(lua_State *L);
@@ -153,13 +166,13 @@ namespace Lua
 		BreaksPerScript d_breaks;
         QByteArray d_curScript;
 		QByteArray d_curBinary;
-        int d_curLine;
+        quint32 d_curLine;
 		lua_State* d_ctx;
         int d_activeLevel;
 		QByteArray d_lastError;
         DebugCommand d_dbgCmd;
         DebugCommand d_defaultDbgCmd;
-		DbgShell* d_dbgShell;
+        DbgShell* d_dbgShell;
         QByteArrayList d_returns;
         bool d_breakHit;
         bool d_debugging;

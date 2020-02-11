@@ -141,6 +141,7 @@ namespace Lua
         bool write(QIODevice* out, const QString& path = QString() );
         bool write( const QString& file );
         void setStripped(bool);
+        void setUseRowColFormat(bool);
 
         static bool allocateWithLinearScan(SlotPool& pool, Intervals& vars, int len = 1 );
         static int nextFreeSlot(SlotPool& pool, int len = 1 , int startFrom = -1);
@@ -149,13 +150,15 @@ namespace Lua
 
         enum { ROW_BIT_LEN = 19, COL_BIT_LEN = 32 - ROW_BIT_LEN - 1, MSB = 0x80000000 };
         static bool isPacked( quint32 rowCol ) { return rowCol & MSB; }
-        static quint32 unpackCol(quint32 rowCol ) { return rowCol & ( 1 << COL_BIT_LEN ) - 1; }
+        static quint32 unpackCol(quint32 rowCol ) { return rowCol & ( ( 1 << COL_BIT_LEN ) - 1 ); }
+        static quint32 unpackCol2(quint32 rowCol ) { return isPacked(rowCol) ? unpackCol(rowCol) : 0; }
         static quint32 unpackRow(quint32 rowCol ) { return ( ( rowCol & ~MSB ) >> COL_BIT_LEN ); }
         static quint32 unpackRow2(quint32 rowCol ) { return isPacked(rowCol) ? unpackRow(rowCol) : rowCol; }
     protected:
         JitBytecode d_bc;
         bool d_hasDebugInfo;
         bool d_stripped;
+        bool d_useRowColFormat;
 
         struct Func : public JitBytecode::Function
         {

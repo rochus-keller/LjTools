@@ -1,6 +1,0 @@
-Download and make LuaJIT 2.0 and copy LuaJit.pri to the src directory, 
-then adjust the include directive in the pro file to point to this 
-pri file. The LuaJIT make is necessary because a couple of required
-files are generated and not originally part of the source tree.
-Maybe you have to rename the .S file created by LuaJIT make 
-to .s (lowercase).

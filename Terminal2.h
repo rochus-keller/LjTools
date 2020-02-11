@@ -45,12 +45,14 @@ namespace Lua
 		QString d_line;
 		QStringList d_histo;
 		QStringList d_next;
+        QByteArray d_stdout, d_stderr;
 	protected:
 		void keyPressEvent ( QKeyEvent * e );
         void inputMethodEvent(QInputMethodEvent *);
         QString prompt() const;
 		void updateFont( const QFont& );
         void printJitInfo();
+        void handleStdoutErr( const QByteArray&, bool err );
     protected slots:
         void onNotify( int messageType, QByteArray val1 = "", int val2 = 0 );
         void handlePaste();

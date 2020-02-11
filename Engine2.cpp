@@ -18,7 +18,7 @@
 */
 
 #include <lua.hpp>
-
+#include "LuaJitComposer.h"
 #include "Engine2.h"
 #include <QCoreApplication>
 #include <math.h>
@@ -164,17 +164,11 @@ int Engine2::_writeImp(lua_State *L, bool err) {
         }
     }
     out.flush();
-    /*
-    if( buf.endsWith('\n') )
-        buf.chop(1);
-    else if( buf.endsWith("\r\n") )
-        buf.chop(2);
-        */
     Engine2* e = Engine2::getInst();
     Q_ASSERT( e != 0 );
     try
     {
-        e->notify( err ? Engine2::Error : Engine2::Print, buf );
+        e->notify( err ? Engine2::Cerr : Engine2::Cout, buf );
     }catch( std::exception& e )
     {
         luaL_error( L, "Error calling host: %s", e.what() );
@@ -464,15 +458,18 @@ bool Engine2::runFunction(int nargs, int nresults)
     {
     case LUA_ERRRUN:
         d_lastError = lua_tostring( d_ctx, -1 );
+        d_running = false;
         lua_pop( d_ctx, 1 );  /* remove error message */
 		nresults = 0;
         break;
     case LUA_ERRMEM:
         d_lastError = "Lua memory exception";
+        d_running = false;
         break;
     case LUA_ERRERR:
         // should not happen
         d_lastError = "Lua unknown error";
+        d_running = false;
         break;
     }
     d_running = false;
@@ -487,24 +484,47 @@ bool Engine2::runFunction(int nargs, int nresults)
 
 bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
 {
+    if( d_waitForCommand )
+    {
+        d_lastError = "Cannot run another Lua function while script is waiting in debugger!";
+        return false;
+    }
+
+    const int prestack = lua_gettop(d_ctx);
+    lua_pushcfunction( d_ctx, ErrHandler );
+    const int errf = lua_gettop(d_ctx);
+
+    d_lastError.clear();
+    d_returns.clear();
+
     if( !pushFunction( source, libname ) )
         return false;
 
-    const int err = lua_pcall( d_ctx, 0, 1, 0 );
+    d_running = true;
+    d_dbgCmd = d_defaultDbgCmd;
+    notifyStart();
+
+    const int err = lua_pcall( d_ctx, 0, 1, errf );
     switch( err )
     {
     case LUA_ERRRUN:
         d_lastError = lua_tostring( d_ctx, -1 );
         lua_pop( d_ctx, 1 );  /* remove error message */
+        lua_pop( d_ctx, 1 ); // remove ErrHandler
+        Q_ASSERT( prestack == lua_gettop(d_ctx) );
+        d_running = false;
         return false;
     case LUA_ERRMEM:
         d_lastError = "Lua memory exception";
+        d_running = false;
         return false;
     case LUA_ERRERR:
         // should not happen
         d_lastError = "Lua unknown error";
+        d_running = false;
         return false;
     }
+    int stack = lua_gettop(d_ctx);
     // stack: lib
     // sets it as the value of the global variable libname, sets it as the value of package.loaded[libname]
     lua_pushvalue(d_ctx, -1 ); // stack: lib lib
@@ -514,6 +534,12 @@ bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
     lua_pushvalue(d_ctx, -3 ); // stack: lib package loaded lib
     lua_setfield(d_ctx, -2, libname.constData() ); // stack: lib package loaded
     lua_pop(d_ctx,3); // stack: -
+    lua_pop( d_ctx, 1 ); // remove ErrHandler
+    stack = lua_gettop(d_ctx);
+
+    Q_ASSERT( prestack == stack );
+    d_running = false;
+    notifyEnd();
 
     return true;
 }
@@ -529,12 +555,47 @@ void Engine2::collect()
 #endif
 }
 
-void Engine2::setActiveLevel(int level, const QByteArray &script, int line)
+void Engine2::setActiveLevel(int level)
 {
     if( d_activeLevel == level )
         return;
     d_activeLevel = level;
-	notify( ActiveLevel, script, line );
+    notify( ActiveLevel, d_curScript, d_curLine );
+}
+
+int Engine2::ErrHandler( lua_State* L )
+{
+    const char* msg = lua_tostring(L, 1 );
+
+    Engine2* e = Engine2::getInst();
+
+    if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
+        return 1; // don't break if user wants to abort
+
+    lua_Debug ar;
+    int res = lua_getstack(L, 0, &ar );
+    if( res != 1 )
+        return 1;
+    res = lua_getinfo(L,"nlS", &ar );
+    if( res != 1 )
+        return 1;
+
+    e->d_breakHit = false;
+    e->d_curScript = ar.source;
+    e->d_curLine = JitComposer::unpackRow2(ar.currentline);
+    e->d_activeLevel = 0;
+    e->d_waitForCommand = true;
+    e->d_breakHit = true;
+    e->notify( ErrorHit, e->d_curScript, e->d_curLine );
+    if( e->d_dbgShell )
+        e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+
+    if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
+        e->notify( Aborted );
+    else
+        e->notify( Continued );
+
+    return 1;
 }
 
 void Engine2::debugHook(lua_State *L, lua_Debug *ar)
@@ -544,32 +605,33 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
 
 	Engine2* e = Engine2::getInst();
 	Q_ASSERT( e != 0 );
-    lua_getinfo( L, "S", ar );
+    lua_getinfo( L, "nlS", ar );
     const QByteArray source = ar->source;
-    const bool lineChanged = ( e->d_curLine != ar->currentline || e->d_curScript != source );
+    const quint32 newLineNr = JitComposer::unpackRow2(ar->currentline);
+    const bool lineChanged = ( e->d_curLine != newLineNr || e->d_curScript != source );
     if( lineChanged )
     {
         e->d_breakHit = false;
         e->d_curScript = source;
-        e->d_curLine = ar->currentline;
+        e->d_curLine = newLineNr;
         e->d_activeLevel = 0;
-		if( e->d_curScript.startsWith('#') )
-			e->d_curBinary = getBinaryFromFunc( L );
-		lua_pop(L, 1); // Function
+        //if( e->d_curScript.startsWith('#') )
+        //	e->d_curBinary = getBinaryFromFunc( L );
+        // lua_pop(L, 1); // Function
 
         if( e->isStepping() )
         {
             e->d_waitForCommand = true;
 			e->notify( LineHit, e->d_curScript, e->d_curLine );
-			if( e->d_dbgShell )
-				e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            if( e->d_dbgShell )
+                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
         }else if( e->d_breaks.value( source ).contains( e->d_curLine ) )
         {
             e->d_waitForCommand = true;
             e->d_breakHit = true;
 			e->notify( BreakHit, e->d_curScript, e->d_curLine );
-			if( e->d_dbgShell )
-				e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            if( e->d_dbgShell )
+                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
 		}
 		if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         {
@@ -613,35 +675,6 @@ void Engine2::notifyEnd()
 {
 	notify( (d_dbgCmd == Abort || d_dbgCmd == AbortSilently)? Aborted : Finished );
 }
-
-#ifdef __unused
-static const char* toStr( int i )
-{
-	switch( i )
-	{
-	case LUA_TNIL:
-		return "nil";
-	case LUA_TNUMBER:
-		return "number";
-	case LUA_TBOOLEAN:
-		return "bool";
-	case LUA_TSTRING:
-		return "string";
-	case LUA_TTABLE:
-		return "table";
-	case LUA_TFUNCTION:
-		return "fun";
-	case LUA_TUSERDATA:
-		return "ud";
-	case LUA_TTHREAD:
-		return "thread";
-	case LUA_TLIGHTUSERDATA:
-		return "lud";
-
-	}
-	return "?";
-}
-#endif
 
 void Engine2::setDebug(bool on)
 {
@@ -703,7 +736,36 @@ const Engine2::Breaks& Engine2::getBreaks(const QByteArray & s) const
 	if( i == d_breaks.end() )
         return s_dummy;
 	else
-		return (*i);
+        return (*i);
+}
+
+Engine2::StackLevels Engine2::getStackTrace() const
+{
+    if( !d_waitForCommand || !d_running )
+        return StackLevels();
+
+    StackLevels ls;
+    int level =  0;
+    while( true )
+    {
+        lua_Debug dbg;
+        int res = lua_getstack(d_ctx, level, &dbg );
+        if( res != 1 )
+            break;
+        res = lua_getinfo(d_ctx,"nlS", &dbg );
+
+        StackLevel l;
+        l.d_level = level;
+        l.d_line = dbg.currentline;
+        l.d_what = dbg.namewhat;
+        l.d_name = ( dbg.name ? dbg.name : "" );
+        l.d_source = dbg.source;
+        l.d_inC = *dbg.what == 'C';
+        ls << l;
+
+        level++;
+    }
+    return ls;
 }
 
 void Engine2::removeAllBreaks(const QByteArray &s)
@@ -734,30 +796,6 @@ void Engine2::error(const char * str)
     //qDebug( "Lua Error: %s", str );
 #endif
 	notify( Error, str );
-}
-
-void Engine2::setPluginPath( const char* path, bool cpath )
-{
-    if( cpath )
-        lua_pushstring( d_ctx, s_cpath ); // Hier muss der String als Name verwendet werden, nicht die Adresse
-	else
-        lua_pushstring( d_ctx, s_path ); // Hier muss der String als Name verwendet werden, nicht die Adresse
-    lua_pushstring( d_ctx, path );
-	lua_rawset( d_ctx, LUA_REGISTRYINDEX );
-}
-
-QByteArray Engine2::getPluginPath(bool cpath) const
-{
-    if( cpath )
-        lua_pushstring( d_ctx, s_cpath ); // Hier muss der String als Name verwendet werden, nicht die Adresse
-    else
-        lua_pushstring( d_ctx, s_path ); // Hier muss der String als Name verwendet werden, nicht die Adresse
-	lua_rawget( d_ctx, LUA_REGISTRYINDEX );
-	const char * path = lua_tostring(d_ctx, -1);
-	if( path == 0 )
-		return "";
-	else
-		return path;
 }
 
 QByteArray Engine2::getTypeName(int arg) const
@@ -861,15 +899,6 @@ QByteArray Engine2::__tostring(int arg) const
 void Engine2::pop(int count)
 {
 	lua_pop( d_ctx, count );
-}
-
-void Engine2::dumpStackFrom(int arg, const char* title )
-{
-	if( arg <= 0 )
-		arg = lua_gettop( d_ctx ) + arg;
-	qDebug() << "******** Engine2::dumpStackFrom: " << arg << title;
-	for( int n = arg; n <= lua_gettop( d_ctx ); n++ )
-		qDebug() << "Level:" << n << getTypeName(n) << getValueString(n);
 }
 
 void Engine2::notify(MessageType messageType, const QByteArray &val1, int val2)

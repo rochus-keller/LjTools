@@ -250,6 +250,35 @@ void Terminal2::printJitInfo()
     printText( str );
 }
 
+void Terminal2::handleStdoutErr(const QByteArray& str, bool err)
+{
+    QByteArray& out = err ? d_stderr : d_stdout;
+
+    for( int i = 0; i < str.size(); i++ )
+    {
+        if( str[i] < ' ' )
+        {
+            switch( str[i] )
+            {
+            case 0x08: // backspace
+                out.chop(1);
+                break;
+            case 0x09: // TAB
+                out.append(0x09);
+                break;
+            case 0x0a: // LF
+            case 0x04: // EOT
+                printText( QString::fromLatin1(out), err );
+                out.clear();
+                break;
+            }
+        }else
+        {
+            out.append(str[i]);
+        }
+    }
+}
+
 void Terminal2::onNotify(int messageType, QByteArray val1, int val2)
 {
     switch( messageType )
@@ -261,6 +290,10 @@ void Terminal2::onNotify(int messageType, QByteArray val1, int val2)
         d_out.insertText( val1, s_errf );
         d_out.insertText( QString( QChar::ParagraphSeparator ), s_pf );
 		moveCursor( QTextCursor::End );
+        break;
+    case Engine2::Cout:
+    case Engine2::Cerr:
+        handleStdoutErr( val1, messageType == Engine2::Cerr );
         break;
 	case Engine2::LineHit:
 	case Engine2::BreakHit:

@@ -23,7 +23,7 @@
 #include <QBitArray>
 using namespace Lua;
 
-JitComposer::JitComposer(QObject *parent) : QObject(parent),d_hasDebugInfo(false),d_stripped(false)
+JitComposer::JitComposer(QObject *parent) : QObject(parent),d_hasDebugInfo(false),d_stripped(false),d_useRowColFormat(true)
 {
 
 }
@@ -60,6 +60,16 @@ int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, quin
     f->d_sourceFile = sourceRef;
     if( d_hasDebugInfo )
     {
+        if( isPacked(firstLine) )
+        {
+            Q_ASSERT( isPacked(lastLine) );
+            if( !d_useRowColFormat )
+            {
+                firstLine = unpackRow(firstLine);
+                lastLine = unpackRow(lastLine);
+            }
+        }
+
         f->d_firstline = firstLine;
         f->d_numline = lastLine - firstLine + 1;
         // intentionally not unpack so that the larger numline determines larger word length
@@ -112,8 +122,11 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, q
     if( line > 0 )
     {
         if( d_hasDebugInfo )
+        {
+            if( !d_useRowColFormat && isPacked(line) )
+                line = unpackRow(line);
             d_bc.d_fstack.back()->d_lines.append(line);
-        else
+        }else
             qWarning() << "JitComposer::addOpImp: not expecting line number";
     }else if( d_hasDebugInfo )
     {
@@ -628,6 +641,11 @@ bool JitComposer::write(const QString& file)
 void JitComposer::setStripped(bool on)
 {
     d_stripped = on;
+}
+
+void JitComposer::setUseRowColFormat(bool on)
+{
+    d_useRowColFormat = on;
 }
 
 static bool sortIntervals( const JitComposer::Interval& lhs, const JitComposer::Interval& rhs )

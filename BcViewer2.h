@@ -36,6 +36,7 @@ namespace Lua
         bool loadFrom( QIODevice*, const QString& path = QString() );
         void gotoLine(quint32);
         bool saveTo( const QString&, bool stripped = false );
+        void clear();
     signals:
         void sigGotoLine(quint32 lnr);
     protected slots:
@@ -48,6 +49,7 @@ namespace Lua
         JitBytecode d_bc;
         typedef QMap<quint32,QList<QTreeWidgetItem*> > Items;
         Items d_items;
+        bool d_lock;
     };
 }
 
