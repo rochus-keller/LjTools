@@ -102,6 +102,11 @@ namespace Lua
             bool d_isUv;
             LocalVar():d_isUv(false),d_type(NIL){}
         };
+        struct DummyVar
+        {
+            quint8 d_type;
+            DummyVar(quint8 t = 0):d_type(t){}
+        };
         typedef QList<LocalVar> LocalVars;
         LocalVars getLocalVars(bool includeUpvals = true, quint8 resolveTableToLevel = 0, int maxArrayIndex = 10) const;
 
@@ -196,6 +201,6 @@ namespace Lua
 	};
 }
 
-Q_DECLARE_METATYPE(Lua::Engine2::LocalVar::Type)
+Q_DECLARE_METATYPE(Lua::Engine2::DummyVar)
 
 #endif // !defined(LUA_ENGINE2__H)

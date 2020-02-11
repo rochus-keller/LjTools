@@ -967,6 +967,9 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             lua_pushnil(d_ctx);  /* first key */
             while( lua_next(d_ctx, arg) != 0 )
             {
+                QByteArray len = lua_tostring(d_ctx, lua_gettop(d_ctx));
+                if( len == "73" )
+                    qDebug() << "hit";
               /* uses 'key' (at index -2) and 'value' (at index -1) */
               vals.insert( lua_tostring(d_ctx, -2), getValue( lua_gettop(d_ctx), resolveTableToLevel - 1, maxArrayIndex ) );
               /* removes 'value'; keeps 'key' for next iteration */
@@ -974,10 +977,10 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             }
             return vals;
         }else
-            return QVariant::fromValue(LocalVar::TABLE);
+            return QVariant::fromValue(DummyVar(LocalVar::TABLE));
         break;
     default:
-        return QVariant::fromValue(luaToValType(t));
+        return QVariant::fromValue(DummyVar(luaToValType(t)));
     }
     return QVariant();
 }
