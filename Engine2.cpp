@@ -768,6 +768,90 @@ Engine2::StackLevels Engine2::getStackTrace() const
     return ls;
 }
 
+static bool sortLocals( const Lua::Engine2::LocalVar& lhs, const Lua::Engine2::LocalVar& rhs )
+{
+    return lhs.d_name.toLower() < rhs.d_name.toLower();
+}
+
+static inline Engine2::LocalVar::Type luaToValType( int t )
+{
+    switch( t )
+    {
+    case LUA_TNIL:
+        return Engine2::LocalVar::NIL;
+    case LUA_TFUNCTION:
+        return Engine2::LocalVar::FUNC;
+    case LUA_TTABLE:
+        return Engine2::LocalVar::TABLE;
+    case LUA_TLIGHTUSERDATA:
+    case LUA_TUSERDATA:
+        return Engine2::LocalVar::STRUCT;
+    case LUA_TBOOLEAN:
+        return Engine2::LocalVar::BOOL;
+    case LUA_TNUMBER:
+        return Engine2::LocalVar::NUMBER;
+    case LUA_TSTRING:
+        return Engine2::LocalVar::STRING;
+
+    default:
+        return Engine2::LocalVar::NIL;
+    }
+}
+
+Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTableToLevel, int maxArrayIndex ) const
+{
+    if( !d_waitForCommand || !d_running )
+        return LocalVars();
+
+    LocalVars ls;
+
+    lua_Debug ar;
+    if( !lua_getstack( d_ctx, d_activeLevel, &ar ) )
+        return LocalVars();
+    int n = 1;
+    while( const char* name = lua_getlocal( d_ctx, &ar, n) )
+    {
+        const int top = lua_gettop(d_ctx);
+        LocalVar v;
+        v.d_name = name;
+        if( !v.d_name.startsWith('(') )
+        {
+            v.d_type = luaToValType( lua_type( d_ctx, top ) );
+            v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
+            ls << v;
+        }
+        lua_pop( d_ctx, 1 );
+        n++;
+    }
+
+    if( includeUpvals && lua_getinfo( d_ctx, "f", &ar ) != 0 )
+    {
+        const int f = lua_gettop(d_ctx);
+
+        int n = 0;
+        while( const char* name = lua_getupvalue( d_ctx, f, n) )
+        {
+            const int top = lua_gettop(d_ctx);
+            LocalVar v;
+            v.d_name = name;
+            v.d_isUv = true;
+            if( !v.d_name.startsWith('(') )
+            {
+                v.d_type = luaToValType( lua_type( d_ctx, top ) );
+                v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
+                ls << v;
+            }
+            lua_pop( d_ctx, 1 );
+            n++;
+        }
+        lua_pop( d_ctx, 1 ); // fuction
+    }
+
+    std::sort( ls.begin(), ls.end(), sortLocals );
+
+    return ls;
+}
+
 void Engine2::removeAllBreaks(const QByteArray &s)
 {
 	if( s.isNull() )
@@ -804,7 +888,7 @@ QByteArray Engine2::getTypeName(int arg) const
     switch( t )
     {
     case LUA_TNIL:
-        return "-";
+        return "";
     case LUA_TFUNCTION:
         if( lua_iscfunction( d_ctx, arg ) )
             return "C function";
@@ -828,7 +912,7 @@ static QByteArray _toHex(const void *p)
     return "0x" + QByteArray::number((quint32)p, 16 ); // table, thread, function, userdata
 }
 
-QByteArray Engine2::getValueString(int arg) const
+QByteArray Engine2::getValueString(int arg, bool showAddress ) const
 {
     switch( lua_type( d_ctx, arg ) )
     {
@@ -843,10 +927,15 @@ QByteArray Engine2::getValueString(int arg) const
     case LUA_TTABLE:
     case LUA_TTHREAD:
     case LUA_TFUNCTION:
-        return _toHex( lua_topointer( d_ctx, arg) );
+        if( showAddress )
+            return _toHex( lua_topointer( d_ctx, arg) );
+        break;
     case LUA_TLIGHTUSERDATA:
-        return _toHex( lua_touserdata( d_ctx, arg ) );
+        if( showAddress )
+            return _toHex( lua_touserdata( d_ctx, arg ) );
+        break;
     case LUA_TUSERDATA:
+        if( false ) // TODO
         {
             const QByteArray name; //  = ValueBindingBase::getBindingName( d_ctx, arg );
 			if( !name.isEmpty() )
@@ -857,6 +946,40 @@ QByteArray Engine2::getValueString(int arg) const
         break;
     }
     return QByteArray();
+}
+
+QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayIndex ) const
+{
+    const int t = lua_type( d_ctx, arg );
+    switch( t )
+    {
+    case LUA_TNUMBER:
+        return lua_tonumber( d_ctx, arg );
+    case LUA_TBOOLEAN:
+        return lua_toboolean( d_ctx, arg ) ? true : false;
+    case LUA_TSTRING:
+        return lua_tostring( d_ctx, arg );
+    case LUA_TTABLE:
+        if( resolveTableToLevel > 0 )
+        {
+            QVariantMap vals;
+            Q_ASSERT( arg >= 0 );
+            lua_pushnil(d_ctx);  /* first key */
+            while( lua_next(d_ctx, arg) != 0 )
+            {
+              /* uses 'key' (at index -2) and 'value' (at index -1) */
+              vals.insert( lua_tostring(d_ctx, -2), getValue( lua_gettop(d_ctx), resolveTableToLevel - 1, maxArrayIndex ) );
+              /* removes 'value'; keeps 'key' for next iteration */
+              lua_pop(d_ctx, 1);
+            }
+            return vals;
+        }else
+            return QVariant::fromValue(LocalVar::TABLE);
+        break;
+    default:
+        return QVariant::fromValue(luaToValType(t));
+    }
+    return QVariant();
 }
 
 int Engine2::pushLocalOrGlobal(const QByteArray &name)

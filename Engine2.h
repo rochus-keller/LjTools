@@ -25,6 +25,7 @@
 #include <QObject>
 #include <QSet>
 #include <QMap>
+#include <QVariant>
 
 typedef struct lua_State lua_State;
 typedef struct lua_Debug lua_Debug;
@@ -73,6 +74,7 @@ namespace Lua
         bool isStepping() const { return d_dbgCmd == RunToNextLine; }
         bool isWaiting() const { return d_waitForCommand; }
         bool isBreakHit() const { return d_breakHit; }
+        bool isAborted() const { return d_dbgCmd == AbortSilently || d_dbgCmd == Abort; }
 		bool isSilent() const { return d_dbgCmd == AbortSilently; }
         void removeAllBreaks( const QByteArray & = QByteArray() );
         void removeBreak( const QByteArray &, quint32 );
@@ -91,6 +93,17 @@ namespace Lua
         };
         typedef QList<StackLevel> StackLevels;
         StackLevels getStackTrace() const;
+        struct LocalVar
+        {
+            enum Type { NIL, BOOL, NUMBER, STRING, FUNC, TABLE, STRUCT };
+            QByteArray d_name;
+            QVariant d_value;
+            quint8 d_type;
+            bool d_isUv;
+            LocalVar():d_isUv(false),d_type(NIL){}
+        };
+        typedef QList<LocalVar> LocalVars;
+        LocalVars getLocalVars(bool includeUpvals = true, quint8 resolveTableToLevel = 0, int maxArrayIndex = 10) const;
 
 		static Engine2* getInst();
 		static void setInst( Engine2* );
@@ -115,7 +128,8 @@ namespace Lua
         // Value Support
         QByteArray getTypeName(int arg) const;
         QByteArray __tostring(int arg) const;
-        QByteArray getValueString(int arg) const;
+        QByteArray getValueString(int arg, bool showAddress = true) const;
+        QVariant getValue(int arg, quint8 resolveTableToLevel = 0, int maxArrayIndex = 10) const;
         int pushLocalOrGlobal( const QByteArray& name );
         void pop(int count = 1);
 
@@ -181,5 +195,7 @@ namespace Lua
         bool d_printToStdout;
 	};
 }
+
+Q_DECLARE_METATYPE(Lua::Engine2::LocalVar::Type)
 
 #endif // !defined(LUA_ENGINE2__H)
