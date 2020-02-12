@@ -573,8 +573,8 @@ void JitComposer::setVarNames(const JitComposer::VarNameList& l)
     foreach( const VarName& vn, l )
     {
         JitBytecode::Function::Var v;
-        v.d_startpc = vn.d_from + 2; // see JitBytecode::Function::findVar why +2
-        v.d_endpc = vn.d_to + 2;
+        v.d_startpc = vn.d_from + 0;
+        v.d_endpc = vn.d_to + 2;    // see JitBytecode::Function::findVar why +2
         v.d_name = vn.d_name;
         f->d_vars.append(v);
     }

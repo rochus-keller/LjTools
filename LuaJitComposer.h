@@ -151,7 +151,7 @@ namespace Lua
         enum { ROW_BIT_LEN = 19, COL_BIT_LEN = 32 - ROW_BIT_LEN - 1, MSB = 0x80000000 };
         static bool isPacked( quint32 rowCol ) { return rowCol & MSB; }
         static quint32 unpackCol(quint32 rowCol ) { return rowCol & ( ( 1 << COL_BIT_LEN ) - 1 ); }
-        static quint32 unpackCol2(quint32 rowCol ) { return isPacked(rowCol) ? unpackCol(rowCol) : 0; }
+        static quint32 unpackCol2(quint32 rowCol ) { return isPacked(rowCol) ? unpackCol(rowCol) : 1; }
         static quint32 unpackRow(quint32 rowCol ) { return ( ( rowCol & ~MSB ) >> COL_BIT_LEN ); }
         static quint32 unpackRow2(quint32 rowCol ) { return isPacked(rowCol) ? unpackRow(rowCol) : rowCol; }
     protected:

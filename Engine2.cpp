@@ -828,7 +828,7 @@ Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTable
     {
         const int f = lua_gettop(d_ctx);
 
-        int n = 0;
+        int n = 1;
         while( const char* name = lua_getupvalue( d_ctx, f, n) )
         {
             const int top = lua_gettop(d_ctx);
@@ -967,13 +967,18 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             lua_pushnil(d_ctx);  /* first key */
             while( lua_next(d_ctx, arg) != 0 )
             {
-                QByteArray len = lua_tostring(d_ctx, lua_gettop(d_ctx));
-                if( len == "73" )
-                    qDebug() << "hit";
-              /* uses 'key' (at index -2) and 'value' (at index -1) */
-              vals.insert( lua_tostring(d_ctx, -2), getValue( lua_gettop(d_ctx), resolveTableToLevel - 1, maxArrayIndex ) );
-              /* removes 'value'; keeps 'key' for next iteration */
-              lua_pop(d_ctx, 1);
+                /* uses 'key' (at index -2) and 'value' (at index -1) */
+                const int top = lua_gettop(d_ctx);
+                // "While traversing a table, do not call lua_tolstring directly on a key, unless you know that the
+                // key is actually a string"; tostring calls tolstring!
+                const QVariant key = getValue( top - 1, 0, 0 );
+                if( key.type() != QVariant::Double || key.toInt() <= maxArrayIndex )
+                {
+                    const QVariant value = getValue( top, resolveTableToLevel - 1, maxArrayIndex ) ;
+                    vals.insert( key.toByteArray(), value );
+                }
+                /* removes 'value'; keeps 'key' for next iteration */
+                lua_pop(d_ctx, 1);
             }
             return vals;
         }else
