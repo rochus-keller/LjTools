@@ -24,6 +24,7 @@
 #include <math.h>
 #include <QtDebug>
 #include <iostream>
+#include <QTime>
 
 using namespace Lua;
 
@@ -32,6 +33,7 @@ static Engine2* s_this = 0;
 static const char* s_path = "path";
 static const char* s_cpath = "cpath";
 static Engine2::Breaks s_dummy;
+static const int s_aliveCount = 10000;
 
 int Engine2::_print (lua_State *L)
 {
@@ -182,7 +184,7 @@ int Engine2::_writeImp(lua_State *L, bool err) {
 Engine2::Engine2(QObject *p):QObject(p),
     d_ctx( 0 ), d_debugging( false ), d_running(false), d_waitForCommand(false),
     d_dbgCmd(RunToBreakPoint), d_defaultDbgCmd(RunToBreakPoint), d_activeLevel(0), d_dbgShell(0),
-    d_printToStdout(false)
+    d_printToStdout(false), d_aliveSignal(false)
 {
     lua_State* ctx = lua_open();
 	if( ctx == 0 )
@@ -437,7 +439,7 @@ bool Engine2::executeFile(const QByteArray &path)
 
 bool Engine2::runFunction(int nargs, int nresults)
 {
-	const int preTop = lua_gettop( d_ctx );
+    int preTop = lua_gettop( d_ctx );
 	if( d_waitForCommand )
     {
 		d_lastError = "Cannot run another Lua function while script is waiting in debugger!";
@@ -446,38 +448,52 @@ bool Engine2::runFunction(int nargs, int nresults)
 			Q_ASSERT( lua_gettop( d_ctx ) == ( preTop - nargs - 1 ) );
         return false;
     }
+
+    lua_pushcfunction( d_ctx, ErrHandler );
+    const int errf = preTop-nargs;
+    lua_insert(d_ctx,errf);
+    preTop = lua_gettop( d_ctx );
+
 	d_lastError.clear();
     d_running = true;
 	d_dbgCmd = d_defaultDbgCmd;
     d_returns.clear();
 	notifyStart();
-    // TODO: ev. Stacktrace mittels errfunc
-	// Lua: All arguments and the function value are popped from the stack when the function is called.
-    const int err = lua_pcall( d_ctx, nargs, nresults, 0 );
+
+    // Lua: All arguments and the function value are popped from the stack when the function is called.
+    const int err = lua_pcall( d_ctx, nargs, nresults, errf );
     switch( err )
     {
     case LUA_ERRRUN:
         d_lastError = lua_tostring( d_ctx, -1 );
         d_running = false;
         lua_pop( d_ctx, 1 );  /* remove error message */
-		nresults = 0;
-        break;
+        lua_pop( d_ctx, 1 ); // remove ErrHandler
+        nresults = 0;
+        d_running = false;
+        notifyEnd();
+        return false;
     case LUA_ERRMEM:
         d_lastError = "Lua memory exception";
         d_running = false;
-        break;
+        notifyEnd();
+        return false;
     case LUA_ERRERR:
         // should not happen
         d_lastError = "Lua unknown error";
         d_running = false;
-        break;
+        notifyEnd();
+        return false;
     }
     d_running = false;
-	const int postTop = lua_gettop( d_ctx );
-	if( nresults != LUA_MULTRET )
-		Q_ASSERT( postTop == ( preTop - nargs - 1 + nresults ) );
-    for( int i = preTop; i <= postTop; i++ )
+    // func + nargs were popped by pcall; nresults were pushed
+    preTop = preTop - 1 - nargs;
+    int postTop = lua_gettop( d_ctx );
+    for( int i = preTop + 1; i <= postTop; i++ )
         d_returns << getValueString( i );
+    if( postTop - preTop )
+        lua_pop(d_ctx, postTop - preTop );
+    lua_pop( d_ctx, 1 ); // remove ErrHandler
     notifyEnd();
     return (err == 0);
 }
@@ -513,15 +529,18 @@ bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
         lua_pop( d_ctx, 1 ); // remove ErrHandler
         Q_ASSERT( prestack == lua_gettop(d_ctx) );
         d_running = false;
+        notifyEnd();
         return false;
     case LUA_ERRMEM:
         d_lastError = "Lua memory exception";
         d_running = false;
+        notifyEnd();
         return false;
     case LUA_ERRERR:
         // should not happen
         d_lastError = "Lua unknown error";
         d_running = false;
+        notifyEnd();
         return false;
     }
     int stack = lua_gettop(d_ctx);
@@ -546,13 +565,8 @@ bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
 
 void Engine2::collect()
 {
-#if LUA_VERSION_NUM >= 501
 	if( d_ctx )
 		lua_gc( d_ctx, LUA_GCCOLLECT, 0 );
-#else
-	if( d_ctx )
-		lua_setgcthreshold( d_ctx,0 ); 
-#endif
 }
 
 void Engine2::setActiveLevel(int level)
@@ -585,7 +599,6 @@ int Engine2::ErrHandler( lua_State* L )
     e->d_curLine = JitComposer::unpackRow2(ar.currentline);
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
-    e->d_breakHit = true;
     e->notify( ErrorHit, e->d_curScript, e->d_curLine );
     if( e->d_dbgShell )
         e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
@@ -600,11 +613,28 @@ int Engine2::ErrHandler( lua_State* L )
 
 void Engine2::debugHook(lua_State *L, lua_Debug *ar)
 {
+    Engine2* e = Engine2::getInst();
+    Q_ASSERT( e != 0 );
+
+    if( e->d_aliveSignal && e->d_aliveCount > s_aliveCount && e->d_dbgShell )
+    {
+        e->d_dbgShell->handleAliveSignal( e );
+        e->d_aliveCount = 0;
+        if( e->isStepping() )
+        {
+            e->d_waitForCommand = true;
+            e->d_breakHit = true;
+            e->notify( LineHit, e->d_curScript, e->d_curLine );
+            if( e->d_dbgShell )
+                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            return;
+        }
+    }
+
     if( ar->event != LUA_HOOKLINE )
         return;
 
-	Engine2* e = Engine2::getInst();
-	Q_ASSERT( e != 0 );
+    e->d_aliveCount++;
     lua_getinfo( L, "nlS", ar );
     const QByteArray source = ar->source;
     const quint32 newLineNr = JitComposer::unpackRow2(ar->currentline);
@@ -615,9 +645,6 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         e->d_curScript = source;
         e->d_curLine = newLineNr;
         e->d_activeLevel = 0;
-        //if( e->d_curScript.startsWith('#') )
-        //	e->d_curBinary = getBinaryFromFunc( L );
-        // lua_pop(L, 1); // Function
 
         if( e->isStepping() )
         {
@@ -639,7 +666,23 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         }
 		e->notify( Continued );
     }else
-		lua_pop(L, 1); // function
+        lua_pop(L, 1); // function
+}
+
+void Engine2::aliveSignal(lua_State* L, lua_Debug* ar)
+{
+    Engine2* e = Engine2::getInst();
+    Q_ASSERT( e != 0 );
+    if( e->d_dbgShell )
+    {
+        e->d_dbgShell->handleAliveSignal(e);
+        if( e->isStepping() )
+        {
+            e->d_waitForCommand = true;
+            e->notify( LineHit, e->d_curScript, e->d_curLine );
+            e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+        }
+    }
 }
 
 static int array_writer (lua_State *L, const void* b, size_t size, void* f)
@@ -657,11 +700,7 @@ QByteArray Engine2::getBinaryFromFunc(lua_State *L)
 
 	QByteArray ba;
 	const int res = lua_dump( L, array_writer, &ba );
-#if LUA_VERSION_NUM >= 501
 	if( res != 0 )
-#else
-	if( res != 1 )
-#endif
 		ba.clear();
 	return ba;
 }
@@ -682,10 +721,26 @@ void Engine2::setDebug(bool on)
         return;
     if( on )
         lua_sethook( d_ctx, debugHook, LUA_MASKLINE, 1);
+    else if( d_aliveSignal )
+        lua_sethook( d_ctx, aliveSignal, LUA_MASKCOUNT, s_aliveCount);
     else
         lua_sethook( d_ctx, debugHook, 0, 0);
     d_debugging = on;
 
+}
+
+void Engine2::setAliveSignal(bool on)
+{
+    if( d_aliveSignal == on )
+        return;
+    d_aliveSignal = on;
+    if( d_debugging )
+        return;
+    d_aliveCount = 0;
+    if( on )
+        lua_sethook( d_ctx, aliveSignal, LUA_MASKCOUNT, s_aliveCount);
+    else
+        lua_sethook( d_ctx, aliveSignal, 0, 0);
 }
 
 void Engine2::runToNextLine()
@@ -698,6 +753,38 @@ void Engine2::runToBreakPoint()
 {
     d_dbgCmd = RunToBreakPoint;
     d_waitForCommand = false;
+}
+
+int Engine2::TRAP(lua_State* L)
+{
+    Engine2* e = Engine2::getInst();
+
+    if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
+        return 0; // don't break if user wants to abort
+
+    lua_Debug ar;
+    int res = lua_getstack(L, 0, &ar );
+    if( res != 1 )
+        return 0;
+    res = lua_getinfo(L,"nlS", &ar );
+    if( res != 1 )
+        return 0;
+
+    e->d_curScript = ar.source;
+    e->d_curLine = JitComposer::unpackRow2(ar.currentline);
+    e->d_activeLevel = 0;
+    e->d_waitForCommand = true;
+    e->d_breakHit = true;
+    e->notify( BreakHit, e->d_curScript, e->d_curLine );
+    if( e->d_dbgShell )
+        e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+
+    if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
+        e->notify( Aborted );
+    else
+        e->notify( Continued );
+
+    return 0;
 }
 
 void Engine2::terminate(bool silent)
@@ -876,9 +963,6 @@ void Engine2::print(const char * str)
 
 void Engine2::error(const char * str)
 {
-#ifdef _DEBUG
-    //qDebug( "Lua Error: %s", str );
-#endif
 	notify( Error, str );
 }
 
@@ -964,6 +1048,7 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
         {
             QVariantMap vals;
             Q_ASSERT( arg >= 0 );
+            const int w = ::log10(maxArrayIndex)+1;
             lua_pushnil(d_ctx);  /* first key */
             while( lua_next(d_ctx, arg) != 0 )
             {
@@ -972,10 +1057,17 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
                 // "While traversing a table, do not call lua_tolstring directly on a key, unless you know that the
                 // key is actually a string"; tostring calls tolstring!
                 const QVariant key = getValue( top - 1, 0, 0 );
-                if( key.type() != QVariant::Double || key.toInt() <= maxArrayIndex )
+                const bool numKey = JitBytecode::isNumber(key);
+                if( !numKey || key.toUInt() <= maxArrayIndex )
                 {
+                    // if key is a string or - if a number - is less than max
                     const QVariant value = getValue( top, resolveTableToLevel - 1, maxArrayIndex ) ;
-                    vals.insert( key.toByteArray(), value );
+                    QString keyStr;
+                    if( numKey )
+                        keyStr = QString("%1").arg(key.toUInt(),w,10,QChar(' '));
+                    else
+                        keyStr = key.toString();
+                    vals.insert( keyStr, value );
                 }
                 /* removes 'value'; keeps 'key' for next iteration */
                 lua_pop(d_ctx, 1);
@@ -983,6 +1075,17 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             return vals;
         }else
             return QVariant::fromValue(DummyVar(LocalVar::TABLE));
+        break;
+    case LUA_TUSERDATA:
+        {
+            if( luaL_callmeta(d_ctx,arg,"__tostring") )
+            {
+                QByteArray str = lua_tostring(d_ctx, -1 );
+                lua_pop(d_ctx,1);
+                return str;
+            }// else
+            return QVariant::fromValue(DummyVar(luaToValType(t)));
+        }
         break;
     default:
         return QVariant::fromValue(DummyVar(luaToValType(t)));

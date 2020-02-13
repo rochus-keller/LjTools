@@ -43,6 +43,7 @@ namespace Lua
     {
     public:
         virtual void handleBreak( Engine2*, const QByteArray& source, quint32 line ) = 0;
+        virtual void handleAliveSignal(Engine2*) {}
     };
 
     class Engine2 : public QObject
@@ -64,10 +65,12 @@ namespace Lua
 		// Debugging
         void setDbgShell( DbgShell* ds ) { d_dbgShell = ds; }
 		void setDebug( bool on );
+        void setAliveSignal( bool on );
         bool isDebug() const { return d_debugging; }
 		enum DebugCommand { RunToNextLine, RunToBreakPoint, Abort, AbortSilently };
         void runToNextLine();
         void runToBreakPoint();
+        static int TRAP( lua_State* L );
         void setDefaultCmd( DebugCommand c ) { d_defaultDbgCmd = c; }
         DebugCommand getDefaultCmd() const { return d_defaultDbgCmd; }
         void terminate(bool silent = false);
@@ -174,6 +177,7 @@ namespace Lua
 		virtual void notify( MessageType messageType, const QByteArray& val1 = "", int val2 = 0 );
     private:
 		static void debugHook(lua_State *L, lua_Debug *ar);
+        static void aliveSignal(lua_State *L, lua_Debug *ar);
         static int ErrHandler( lua_State* L );
         void notifyStart();
         void notifyEnd();
@@ -193,8 +197,10 @@ namespace Lua
         DebugCommand d_defaultDbgCmd;
         DbgShell* d_dbgShell;
         QByteArrayList d_returns;
+        quint32 d_aliveCount;
         bool d_breakHit;
         bool d_debugging;
+        bool d_aliveSignal;
         bool d_running;
         bool d_waitForCommand;
         bool d_printToStdout;
