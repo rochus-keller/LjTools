@@ -25,6 +25,7 @@
 #include <QtDebug>
 #include <iostream>
 #include <QTime>
+#include <QFileInfo>
 
 using namespace Lua;
 
@@ -439,6 +440,12 @@ bool Engine2::executeFile(const QByteArray &path)
 
 bool Engine2::runFunction(int nargs, int nresults)
 {
+    if( d_running )
+    {
+        lua_pop(d_ctx, 1 + nargs);
+        return false;
+    }
+
     int preTop = lua_gettop( d_ctx );
 	if( d_waitForCommand )
     {
@@ -455,7 +462,6 @@ bool Engine2::runFunction(int nargs, int nresults)
     preTop = lua_gettop( d_ctx );
 
 	d_lastError.clear();
-    d_running = true;
 	d_dbgCmd = d_defaultDbgCmd;
     d_returns.clear();
 	notifyStart();
@@ -466,26 +472,21 @@ bool Engine2::runFunction(int nargs, int nresults)
     {
     case LUA_ERRRUN:
         d_lastError = lua_tostring( d_ctx, -1 );
-        d_running = false;
         lua_pop( d_ctx, 1 );  /* remove error message */
         lua_pop( d_ctx, 1 ); // remove ErrHandler
         nresults = 0;
-        d_running = false;
         notifyEnd();
         return false;
     case LUA_ERRMEM:
         d_lastError = "Lua memory exception";
-        d_running = false;
         notifyEnd();
         return false;
     case LUA_ERRERR:
         // should not happen
         d_lastError = "Lua unknown error";
-        d_running = false;
         notifyEnd();
         return false;
     }
-    d_running = false;
     // func + nargs were popped by pcall; nresults were pushed
     preTop = preTop - 1 - nargs;
     int postTop = lua_gettop( d_ctx );
@@ -516,7 +517,6 @@ bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
     if( !pushFunction( source, libname ) )
         return false;
 
-    d_running = true;
     d_dbgCmd = d_defaultDbgCmd;
     notifyStart();
 
@@ -528,18 +528,15 @@ bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
         lua_pop( d_ctx, 1 );  /* remove error message */
         lua_pop( d_ctx, 1 ); // remove ErrHandler
         Q_ASSERT( prestack == lua_gettop(d_ctx) );
-        d_running = false;
         notifyEnd();
         return false;
     case LUA_ERRMEM:
         d_lastError = "Lua memory exception";
-        d_running = false;
         notifyEnd();
         return false;
     case LUA_ERRERR:
         // should not happen
         d_lastError = "Lua unknown error";
-        d_running = false;
         notifyEnd();
         return false;
     }
@@ -557,7 +554,6 @@ bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
     stack = lua_gettop(d_ctx);
 
     Q_ASSERT( prestack == stack );
-    d_running = false;
     notifyEnd();
 
     return true;
@@ -603,6 +599,7 @@ int Engine2::ErrHandler( lua_State* L )
     if( e->d_dbgShell )
         e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
 
+    e->d_waitForCommand = false;
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         e->notify( Aborted );
     else
@@ -616,8 +613,10 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
     Engine2* e = Engine2::getInst();
     Q_ASSERT( e != 0 );
 
-    if( e->d_aliveSignal && e->d_aliveCount > s_aliveCount && e->d_dbgShell )
+    if( /* e->d_aliveSignal && */ e->d_aliveCount > s_aliveCount / 2 && e->d_dbgShell )
     {
+        // even if aliveSignal is not enabled it is necessary to give calculation time to the shell
+        // from time to time during long runs without breaks
         e->d_dbgShell->handleAliveSignal( e );
         e->d_aliveCount = 0;
         if( e->isStepping() )
@@ -627,12 +626,10 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
             e->notify( LineHit, e->d_curScript, e->d_curLine );
             if( e->d_dbgShell )
                 e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            e->d_waitForCommand = false;
             return;
         }
     }
-
-    if( ar->event != LUA_HOOKLINE )
-        return;
 
     e->d_aliveCount++;
     lua_getinfo( L, "nlS", ar );
@@ -652,6 +649,7 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
 			e->notify( LineHit, e->d_curScript, e->d_curLine );
             if( e->d_dbgShell )
                 e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            e->d_waitForCommand = false;
         }else if( e->d_breaks.value( source ).contains( e->d_curLine ) )
         {
             e->d_waitForCommand = true;
@@ -659,7 +657,8 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
 			e->notify( BreakHit, e->d_curScript, e->d_curLine );
             if( e->d_dbgShell )
                 e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
-		}
+            e->d_waitForCommand = false;
+        }
 		if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         {
             luaL_error( L, "Execution terminated by user" );
@@ -681,6 +680,7 @@ void Engine2::aliveSignal(lua_State* L, lua_Debug* ar)
             e->d_waitForCommand = true;
             e->notify( LineHit, e->d_curScript, e->d_curLine );
             e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            e->d_waitForCommand = false; // TODO
         }
     }
 }
@@ -707,11 +707,13 @@ QByteArray Engine2::getBinaryFromFunc(lua_State *L)
 
 void Engine2::notifyStart()
 {
-	notify( Started );
+    d_running = true;
+    notify( Started );
 }
 
 void Engine2::notifyEnd()
 {
+    d_running = false;
 	notify( (d_dbgCmd == Abort || d_dbgCmd == AbortSilently)? Aborted : Finished );
 }
 
@@ -722,7 +724,7 @@ void Engine2::setDebug(bool on)
     if( on )
         lua_sethook( d_ctx, debugHook, LUA_MASKLINE, 1);
     else if( d_aliveSignal )
-        lua_sethook( d_ctx, aliveSignal, LUA_MASKCOUNT, s_aliveCount);
+        lua_sethook( d_ctx, aliveSignal, LUA_MASKCOUNT, s_aliveCount); // get's a hook call with each bytecode op when 1
     else
         lua_sethook( d_ctx, debugHook, 0, 0);
     d_debugging = on;
@@ -762,6 +764,11 @@ int Engine2::TRAP(lua_State* L)
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         return 0; // don't break if user wants to abort
 
+    bool doIt = true;
+    if( lua_gettop(L) >= 1 )
+        doIt = lua_toboolean(L,-1);
+    if( !doIt )
+        return 0;
     lua_Debug ar;
     int res = lua_getstack(L, 0, &ar );
     if( res != 1 )
@@ -778,7 +785,7 @@ int Engine2::TRAP(lua_State* L)
     e->notify( BreakHit, e->d_curScript, e->d_curLine );
     if( e->d_dbgShell )
         e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
-
+    e->d_waitForCommand = false;
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         e->notify( Aborted );
     else
@@ -828,9 +835,6 @@ const Engine2::Breaks& Engine2::getBreaks(const QByteArray & s) const
 
 Engine2::StackLevels Engine2::getStackTrace() const
 {
-    if( !d_waitForCommand || !d_running )
-        return StackLevels();
-
     StackLevels ls;
     int level =  0;
     while( true )
@@ -887,9 +891,6 @@ static inline Engine2::LocalVar::Type luaToValType( int t )
 
 Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTableToLevel, int maxArrayIndex ) const
 {
-    if( !d_waitForCommand || !d_running )
-        return LocalVars();
-
     LocalVars ls;
 
     lua_Debug ar;
