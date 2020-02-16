@@ -1049,6 +1049,7 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
         {
             QVariantMap vals;
             Q_ASSERT( arg >= 0 );
+            vals.insert(QString(),QVariant::fromValue(VarAddress(luaToValType(t), lua_topointer(d_ctx,arg))));
             const int w = ::log10(maxArrayIndex)+1;
             lua_pushnil(d_ctx);  /* first key */
             while( lua_next(d_ctx, arg) != 0 )
@@ -1075,7 +1076,7 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             }
             return vals;
         }else
-            return QVariant::fromValue(DummyVar(LocalVar::TABLE));
+            return QVariant::fromValue(VarAddress(LocalVar::TABLE, lua_topointer(d_ctx,arg) ) );
         break;
     case LUA_TUSERDATA:
         {
@@ -1085,11 +1086,11 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
                 lua_pop(d_ctx,1);
                 return str;
             }// else
-            return QVariant::fromValue(DummyVar(luaToValType(t)));
+            return QVariant::fromValue(VarAddress(luaToValType(t), lua_topointer(d_ctx,arg) ));
         }
         break;
     default:
-        return QVariant::fromValue(DummyVar(luaToValType(t)));
+        return QVariant::fromValue(VarAddress(luaToValType(t),lua_topointer(d_ctx,arg)));
     }
     return QVariant();
 }
