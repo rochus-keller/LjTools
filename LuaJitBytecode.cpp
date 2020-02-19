@@ -607,10 +607,10 @@ bool JitBytecode::parseHeader(QIODevice* in)
     if( buf.size() < 4 )
         return error("file too short, invalid header");
 
-    if( buf[0] != BCDUMP_HEAD1 || buf[1] != BCDUMP_HEAD2 || buf[2] != BCDUMP_HEAD3 )
+    if( buf[0] != char(BCDUMP_HEAD1) || buf[1] != char(BCDUMP_HEAD2) || buf[2] != char(BCDUMP_HEAD3) )
         return error("invalid header format");
 
-    if( buf[3] != BCDUMP_VERSION )
+    if( buf[3] != char(BCDUMP_VERSION) )
         return error("wrong version");
 
     d_flags = bcread_uleb128(in);
@@ -643,6 +643,7 @@ bool JitBytecode::writeHeader(QIODevice* out)
         bcwrite_uleb128(out, name.size() );
         out->write( name );
     }
+    return true;
 }
 
 bool JitBytecode::parseFunction(QIODevice* in )

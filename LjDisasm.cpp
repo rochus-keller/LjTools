@@ -660,7 +660,7 @@ static inline QByteArray getPriConst(int i)
 
 static QByteArray escape( QByteArray str )
 {
-    if( !str.isEmpty() && str[0] == 0 )
+    if( !str.isEmpty() && str[0] == char(0) )
         return QByteArray();
     str.replace('\\', "\\\\");
     str.replace('\n', "\\n" );
