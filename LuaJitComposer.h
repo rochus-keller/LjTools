@@ -121,11 +121,13 @@ namespace Lua
         bool SUB(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line = 0 );
         bool SUB(SlotNr dst, SlotNr lhs, SlotNr rhs, quint32 line = 0 );
         bool TDUP(SlotNr dst, const QVariant& constTable, quint32 line = 0 );
-        bool TGET(SlotNr to, SlotNr table, quint8 index, quint32 line = 0 );
-        bool TGET(SlotNr to, SlotNr table, const QVariant&  index, quint32 line = 0 );
+        bool TGET(SlotNr to, SlotNr table, quint8 index, quint32 line = 0 ); // index is a slot
+        bool TGET(SlotNr to, SlotNr table, const QByteArray& name, quint32 line = 0 );
+        bool TGETi(SlotNr to, SlotNr table, quint8 index, quint32 line = 0 ); // index is a number
         bool TNEW(SlotNr slot, quint16 arrSize = 0, quint8 hashSize = 0, quint32 line = 0 );
-        bool TSET(SlotNr value, SlotNr table, quint8 index, quint32 line = 0 );
-        bool TSET(SlotNr value, SlotNr table, const QVariant&  index, quint32 line = 0 );
+        bool TSET(SlotNr value, SlotNr table, quint8 index, quint32 line = 0 ); // index is a slot
+        bool TSETi(SlotNr value, SlotNr table, quint8 index, quint32 line = 0 ); // index is a number
+        bool TSET(SlotNr value, SlotNr table, const QByteArray&  index, quint32 line = 0 );
         bool UCLO(SlotNr slot, Jump offset, quint32 line = 0 );
         bool UGET(SlotNr toSlot, UvNr fromUv, quint32 line = 0 );
         bool USET(UvNr toUv, SlotNr rhs, quint32 line = 0 );
