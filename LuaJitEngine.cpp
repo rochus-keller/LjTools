@@ -251,15 +251,15 @@ QByteArray JitEngine::tostring(const QVariant& v)
     if( v.canConvert<TableRef>() )
     {
         TableRef t = v.value<TableRef>();
-        return "table: 0x" + QByteArray::number( quint32(t.deref()), 16 );
+        return "table: 0x" + QByteArray::number( quint64(t.deref()), 16 );
     }else if( v.canConvert<Closure>() )
     {
         Closure c = v.value<Closure>();
-        return "function: 0x" + QByteArray::number( quint32(c.d_func.constData()), 16 );
+        return "function: 0x" + QByteArray::number( quint64(c.d_func.constData()), 16 );
     }else if( v.canConvert<CFunction>())
     {
         CFunction f = v.value<CFunction>();
-        return "native: 0x" + QByteArray::number( quint32(f.d_func), 16 );
+        return "native: 0x" + QByteArray::number( quint64(f.d_func), 16 );
     }else
         return v.toByteArray();
 }
