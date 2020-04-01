@@ -24,7 +24,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets printsupport
 TARGET = LjAsmEditor
 TEMPLATE = app
 
-INCLUDEPATH += .. ./luajit-2.0
+INCLUDEPATH += ..
 
 #DEFINES += LUA_ENGINE_USE_DEFAULT_PRINT
 
@@ -71,7 +71,7 @@ HEADERS  += LjAsmEditor.h \
     LjAssembler.h \
     BcViewer.h
 
-include( /home/me/Desktop/LuaJIT-2.0.5/src/LuaJit.pri ){
+include( ../LuaJIT/src/LuaJit.pri ){
     LIBS += -ldl
 } else {
     LIBS += -lluajit

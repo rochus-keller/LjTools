@@ -14,6 +14,14 @@ The editor supports semantic highlighting and navigation (CTRL+Click on ident), 
 Here is an Asm Editor screenshot:
 ![LjAsmEditor Screenshot](http://software.rochus-keller.info/LjAsmEditor_screenshot_1.png)
 
+### Binary Versions
+
+Here is a precompiled version of LjAsmEditor for Linux i386: http://software.rochus-keller.info/LjAsmEditor_linux32.tar.gz
+
+Here is a precompiled version of LjBcViewer for Linux i386: http://software.rochus-keller.info/LjBcViewer_linux32.tar.gz
+
+Both versions require a working Qt 5.x base package and printsupport compatible with i386; LuaJIT is statically linked with the binaries.
+
 ### Build Steps
 
 Follow these steps if you want to build LjBcViewer yourself:

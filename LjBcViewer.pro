@@ -24,7 +24,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets printsupport
 TARGET = LjBcViewer
 TEMPLATE = app
 
-INCLUDEPATH += .. ./luajit-2.0
+INCLUDEPATH += ..
 
 SOURCES += LjBcViewerMain.cpp \
     ../GuiTools/CodeEditor.cpp \
@@ -51,7 +51,7 @@ HEADERS  += LjBcViewerMain.h \
     LjDisasm.h \
     StreamSpy.h
 
-include( /home/me/Desktop/LuaJIT-2.0.5/src/LuaJit.pri ){
+include( ../LuaJIT/src/LuaJit.pri ){
     LIBS += -ldl
 } else {
     LIBS += -lluajit
