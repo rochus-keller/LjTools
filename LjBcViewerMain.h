@@ -59,7 +59,7 @@ namespace Lua
         void onSave();
         void onSaveAs();
         void onCaption();
-        void onGotoLnr(int);
+        void onGotoLnr(quint32);
         void onFullScreen();
         void onCursor();
         void onExportBc();

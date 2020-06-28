@@ -23,6 +23,9 @@
 #include <QtDebug>
 using namespace Lua;
 
+// TODO: this implementation doesn't properly cover all test cases by puc-lua yet; especially
+// it has troubles with nested long comments and strings; use LuaLexer
+
 Highlighter::Highlighter(QTextDocument *parent) :
     QSyntaxHighlighter(parent)
 {

@@ -170,6 +170,8 @@ bool JitComposer::patch(quint32 pc, qint16 off)
         bc &= 0x0000ffff;
         bc |= quint16( off + JitBytecode::Instruction::JumpBias ) << 16;
         return true;
+    default:
+        break;
     }
     return false;
 }
@@ -719,6 +721,14 @@ int JitComposer::highestUsedSlot(const JitComposer::SlotPool& pool)
         if( pool.test(i) )
             return i;
     return -1;
+}
+
+quint32 JitComposer::packRowCol(quint32 row, quint32 col)
+{
+    static const quint32 maxRow = ( 1 << ROW_BIT_LEN ) - 1;
+    static const quint32 maxCol = ( 1 << COL_BIT_LEN ) - 1;
+    Q_ASSERT( row <= maxRow && col <= maxCol );
+    return ( row << COL_BIT_LEN ) | col | MSB;
 }
 
 bool JitComposer::allocateWithLinearScan(SlotPool& pool, JitComposer::Intervals& vars, int len)

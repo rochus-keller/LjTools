@@ -197,22 +197,22 @@ static bool _compareSimpleOrUser(Engine2* e, int op )
     case LUA_TUSERDATA:
         switch(op)
         {
-        case Lexer::Neq:
+        case ExpressionLexer::Neq:
             lua_pushboolean( e->getCtx(), !lua_equal( e->getCtx(), -2, -1 ) );
             break;
-        case Lexer::Eq:
+        case ExpressionLexer::Eq:
             lua_pushboolean( e->getCtx(), lua_equal( e->getCtx(), -2, -1 ) );
             break;
-        case Lexer::Lt:
+        case ExpressionLexer::Lt:
             lua_pushboolean( e->getCtx(), lua_lessthan( e->getCtx(), -2, -1 ) );
             break;
-        case Lexer::Leq:
+        case ExpressionLexer::Leq:
             lua_pushboolean( e->getCtx(), lua_lessthan( e->getCtx(), -2, -1 ) || lua_equal( e->getCtx(), -2, -1 ) );
             break;
-        case Lexer::Gt:
+        case ExpressionLexer::Gt:
             lua_pushboolean( e->getCtx(), !lua_lessthan( e->getCtx(), -2, -1 ) && !lua_equal( e->getCtx(), -2, -1 ) );
             break;
-        case Lexer::Geq:
+        case ExpressionLexer::Geq:
             lua_pushboolean( e->getCtx(), !lua_lessthan( e->getCtx(), -2, -1 ) || lua_equal( e->getCtx(), -2, -1 ) );
             break;
         default:
@@ -258,46 +258,46 @@ int ExpressionParser::depthFirstExec(Engine2* e, ExpressionParser::AstNode * n)
         _evalName( e, n->d_right, -1 );
         switch( n->d_val.toInt() )
         {
-        case Lexer::Plus:
+        case ExpressionLexer::Plus:
             lua_pushnumber( e->getCtx(), lua_tonumber( e->getCtx(), -2 ) + lua_tonumber( e->getCtx(), -1 ) );
             break;
-        case Lexer::Minus:
+        case ExpressionLexer::Minus:
             lua_pushnumber( e->getCtx(), lua_tonumber( e->getCtx(), -2 ) - lua_tonumber( e->getCtx(), -1 ) );
             break;
-        case Lexer::Star:
+        case ExpressionLexer::Star:
             lua_pushnumber( e->getCtx(), lua_tonumber( e->getCtx(), -2 ) * lua_tonumber( e->getCtx(), -1 ) );
             break;
-        case Lexer::Slash:
+        case ExpressionLexer::Slash:
             lua_pushnumber( e->getCtx(), lua_tonumber( e->getCtx(), -2 ) / lua_tonumber( e->getCtx(), -1 ) );
             break;
-        case Lexer::Percent:
+        case ExpressionLexer::Percent:
             lua_pushnumber( e->getCtx(), luai_nummod( lua_tonumber( e->getCtx(), -2 ),
                                                       lua_tonumber( e->getCtx(), -1 ) ) );
             break;
-        case Lexer::Hat:
+        case ExpressionLexer::Hat:
             lua_pushnumber( e->getCtx(), ::pow( lua_tonumber( e->getCtx(), -2 ),
                                                       lua_tonumber( e->getCtx(), -1 ) ) );
             break;
-        case Lexer::Concat:
+        case ExpressionLexer::Concat:
             lua_pushstring( e->getCtx(), QByteArray( lua_tostring( e->getCtx(), -2 ) +
                                                      QByteArray( lua_tostring( e->getCtx(), -1 ) ) ) );
             break;
-        case Lexer::Neq:
-        case Lexer::Eq:
-        case Lexer::Lt:
-        case Lexer::Leq:
-        case Lexer::Gt:
-        case Lexer::Geq:
+        case ExpressionLexer::Neq:
+        case ExpressionLexer::Eq:
+        case ExpressionLexer::Lt:
+        case ExpressionLexer::Leq:
+        case ExpressionLexer::Gt:
+        case ExpressionLexer::Geq:
             if( !_compareSimpleOrUser( e, n->d_val.toInt() ) )
             {
                 lua_pop( e->getCtx(), 2 );
                 error("binary operation not supported for operands");
             }
             break;
-        case Lexer::And:
+        case ExpressionLexer::And:
             lua_pushboolean( e->getCtx(), lua_toboolean( e->getCtx(), -2 ) && lua_toboolean( e->getCtx(), -1 ) );
             break;
-        case Lexer::Or:
+        case ExpressionLexer::Or:
             lua_pushboolean( e->getCtx(), lua_toboolean( e->getCtx(), -2 ) || lua_toboolean( e->getCtx(), -1 ) );
             break;
         default:
@@ -315,15 +315,15 @@ int ExpressionParser::depthFirstExec(Engine2* e, ExpressionParser::AstNode * n)
         _evalName( e, n->d_left, -1 );
         switch( n->d_val.toInt() )
         {
-        case Lexer::Minus:
+        case ExpressionLexer::Minus:
             lua_pushnumber( e->getCtx(), -lua_tonumber( e->getCtx(), -1 ) );
             lua_replace( e->getCtx(), -2 );
             return 1;
-        case Lexer::Not:
+        case ExpressionLexer::Not:
             lua_pushboolean( e->getCtx(), !lua_toboolean( e->getCtx(), -1 ) );
             lua_replace( e->getCtx(), -2 );
             return 1;
-        case Lexer::Pound:
+        case ExpressionLexer::Pound:
             switch( lua_type( e->getCtx(), -1 ) )
             {
             case LUA_TTABLE:
@@ -372,7 +372,7 @@ int ExpressionParser::depthFirstExec(Engine2* e, ExpressionParser::AstNode * n)
     return 0;
 }
 
-Lexer::Operator Lexer::fetchOp()
+ExpressionLexer::Operator ExpressionLexer::fetchOp()
 {
     char ch;
     char ch2[3];
@@ -475,7 +475,7 @@ Lexer::Operator Lexer::fetchOp()
     return NoOp;
 }
 
-bool Lexer::error(const char *msg)
+bool ExpressionLexer::error(const char *msg)
 {
     d_source.rewind();
     d_error = msg;
@@ -483,7 +483,7 @@ bool Lexer::error(const char *msg)
     return false;
 }
 
-Lexer::Token Lexer::fetchNext()
+ExpressionLexer::Token ExpressionLexer::fetchNext()
 {
     QByteArray str;
     double number;
@@ -539,7 +539,7 @@ Lexer::Token Lexer::fetchNext()
     return Token();
 }
 
-bool Lexer::fetchName(QByteArray & out)
+bool ExpressionLexer::fetchName(QByteArray & out)
 {
     // any string of letters, digits, and underscores, not beginning with a digit
     char ch;
@@ -560,7 +560,7 @@ bool Lexer::fetchName(QByteArray & out)
     return false;
 }
 
-bool Lexer::fetchString( QByteArray &str)
+bool ExpressionLexer::fetchString( QByteArray &str)
 {
     char ch;
     d_source.peek( &ch, 1 );
@@ -631,7 +631,7 @@ static inline bool _isHexChar( char ch )
     return ( ch >= 'a' && ch <= 'f' ) || ( ch >= 'A' && ch <= 'F' );
 }
 
-bool Lexer::fetchNumber( double &d)
+bool ExpressionLexer::fetchNumber( double &d)
 {
     char ch;
     d_source.peek( &ch, 1 );
@@ -771,7 +771,7 @@ bool Lexer::fetchNumber( double &d)
     return false;
 }
 
-void Lexer::eatSpace()
+void ExpressionLexer::eatSpace()
 {
     char ch;
     d_source.peek( &ch, 1 );
@@ -863,39 +863,39 @@ static QString _toOpStr( int o )
 {
     switch(o)
     {
-    case Lexer::Plus:
+    case ExpressionLexer::Plus:
         return "+";
-    case Lexer::Minus:
+    case ExpressionLexer::Minus:
         return "-";
-    case Lexer::Star:
+    case ExpressionLexer::Star:
         return "*";
-    case Lexer::Slash:
+    case ExpressionLexer::Slash:
         return "/";
-    case Lexer::Hat:
+    case ExpressionLexer::Hat:
         return "^";
-    case Lexer::Percent:
+    case ExpressionLexer::Percent:
         return "%";
-    case Lexer::Concat:
+    case ExpressionLexer::Concat:
         return "..";
-    case Lexer::Lt:
+    case ExpressionLexer::Lt:
         return "<";
-    case Lexer::Leq:
+    case ExpressionLexer::Leq:
         return "<=";
-    case Lexer::Gt:
+    case ExpressionLexer::Gt:
         return ">";
-    case Lexer::Geq:
+    case ExpressionLexer::Geq:
         return ">=";
-    case Lexer::Eq:
+    case ExpressionLexer::Eq:
         return "==";
-    case Lexer::Neq:
+    case ExpressionLexer::Neq:
         return "~=";
-    case Lexer::And:
+    case ExpressionLexer::And:
         return "and";
-    case Lexer::Or:
+    case ExpressionLexer::Or:
         return "or";
-    case Lexer::Not:
+    case ExpressionLexer::Not:
         return "not";
-    case Lexer::Pound:
+    case ExpressionLexer::Pound:
         return "#";
     default:
         break;
@@ -939,7 +939,7 @@ SourceBuffer::SourceBuffer(const QByteArray &source):d_source(source),d_eaten(0)
 {
 }
 
-bool Lexer::process(const QByteArray &buf)
+bool ExpressionLexer::process(const QByteArray &buf)
 {
     d_source = SourceBuffer(buf);
     d_tokens.clear();
@@ -964,13 +964,13 @@ static QString _toValStr2( int t, const QVariant& v )
 {
     switch( t )
     {
-    case Lexer::Token::Bool:
-    case Lexer::Token::Number:
-    case Lexer::Token::Name:
+    case ExpressionLexer::Token::Bool:
+    case ExpressionLexer::Token::Number:
+    case ExpressionLexer::Token::Name:
         return QString("=%1").arg( v.toString() );
-    case Lexer::Token::String:
+    case ExpressionLexer::Token::String:
         return QString("=\"%1\"").arg( v.toString() );
-    case Lexer::Token::Op:
+    case ExpressionLexer::Token::Op:
         return QString("='%1'").arg( _toOpStr( v.toInt() ) );
     default:
         return QString();
@@ -981,27 +981,27 @@ static QString _toTypeStr2( int t )
 {
     switch( t )
     {
-    case Lexer::Token::Nil:
+    case ExpressionLexer::Token::Nil:
         return "Nil";
-    case Lexer::Token::Bool:
+    case ExpressionLexer::Token::Bool:
         return "Bool";
-    case Lexer::Token::Number:
+    case ExpressionLexer::Token::Number:
         return "Number";
-    case Lexer::Token::String:
+    case ExpressionLexer::Token::String:
         return "String";
-    case Lexer::Token::Name:
+    case ExpressionLexer::Token::Name:
         return "Name";
-    case Lexer::Token::LBrack:
+    case ExpressionLexer::Token::LBrack:
         return "LBrack";
-    case Lexer::Token::RBrack:
+    case ExpressionLexer::Token::RBrack:
         return "RBrack";
-    case Lexer::Token::LBrace:
+    case ExpressionLexer::Token::LBrace:
         return "LBrace";
-    case Lexer::Token::RBrace:
+    case ExpressionLexer::Token::RBrace:
         return "RBrace";
-    case Lexer::Token::Dot:
+    case ExpressionLexer::Token::Dot:
         return "Dot";
-    case Lexer::Token::Op:
+    case ExpressionLexer::Token::Op:
         return "Op";
     default:
         break;
@@ -1009,7 +1009,7 @@ static QString _toTypeStr2( int t )
     return "Invalid";
 }
 
-void Lexer::dump(QTextStream &out) const
+void ExpressionLexer::dump(QTextStream &out) const
 {
     foreach( const Token& t, d_tokens )
     {
@@ -1018,7 +1018,7 @@ void Lexer::dump(QTextStream &out) const
     out << endl;
 }
 
-Lexer::Token Lexer::next()
+ExpressionLexer::Token ExpressionLexer::next()
 {
     if( d_cur < d_tokens.size() )
     {
@@ -1029,7 +1029,7 @@ Lexer::Token Lexer::next()
         return Token();
 }
 
-Lexer::Token Lexer::peek(int i)
+ExpressionLexer::Token ExpressionLexer::peek(int i)
 {
     i++;
     if( d_cur - i >= 0 )
@@ -1042,19 +1042,19 @@ void ExpressionParser::prefixexp(AstNode* n)
 {
     /* prefixexp -> NAME | '(' expr ')' */
 
-    Lexer::Token tok = d_lex.peek();
+    ExpressionLexer::Token tok = d_lex.peek();
     switch( tok.d_type )
     {
-    case Lexer::Token::LBrace:
+    case ExpressionLexer::Token::LBrace:
         tok = d_lex.next();
         n->d_left = new AstNode( BraceOp );
         expr( n->d_left );
         tok = d_lex.peek();
-        if( tok.d_type != Lexer::Token::RBrace )
+        if( tok.d_type != ExpressionLexer::Token::RBrace )
             error( "expecting ')'" );
         tok = d_lex.next(); // in check_match enthalten!
         return;
-    case Lexer::Token::Name:
+    case ExpressionLexer::Token::Name:
         n->d_left = new AstNode( Name, tok.d_val );
         // singlevar wird gleich hier alles erledigt
         tok = d_lex.next(); // singlevar enthält str_checkname was das Token weiterschaltet!
@@ -1072,22 +1072,22 @@ void ExpressionParser::primaryexp(ExpressionParser::AstNode * n)
     // n->d_left ist bereits gesetzt
     for(;;)
     {
-        Lexer::Token tok = d_lex.peek();
+        ExpressionLexer::Token tok = d_lex.peek();
         switch( tok.d_type )
         {
-        case Lexer::Token::Dot:
+        case ExpressionLexer::Token::Dot:
             {
                 AstNode* opNode = new AstNode( DotOp );
                 opNode->d_left = n->d_left;
                 n->d_left = opNode;
                 tok = d_lex.next();
-                if( tok.d_type != Lexer::Token::Name )
+                if( tok.d_type != ExpressionLexer::Token::Name )
                     error("expecting name");
                 opNode->d_right = new AstNode( Name, tok.d_val );
                 tok = d_lex.next(); // in checkname indirekt enthalten!
             }
             break;
-        case Lexer::Token::LBrack:
+        case ExpressionLexer::Token::LBrack:
             {
                 /* index -> '[' expr ']' */
                 tok = d_lex.next();
@@ -1099,7 +1099,7 @@ void ExpressionParser::primaryexp(ExpressionParser::AstNode * n)
                 opNode->d_right = tmp.d_left;
                 tmp.d_left = 0;
                 tok = d_lex.peek();
-                if( tok.d_type != Lexer::Token::RBrack )
+                if( tok.d_type != ExpressionLexer::Token::RBrack )
                     error( "expecting ']'");
                 tok = d_lex.next(); // in checknext enthalten!
             }
@@ -1131,22 +1131,22 @@ static const struct {
 
 #define UNARY_PRIORITY  8  /* priority for unary operators */
 
-static Lexer::Operator _getbinopr( const Lexer::Token& t )
+static ExpressionLexer::Operator _getbinopr( const ExpressionLexer::Token& t )
 {
-    if( t.d_type == Lexer::Token::Op )
-        return (Lexer::Operator)t.d_val.toUInt();
+    if( t.d_type == ExpressionLexer::Token::Op )
+        return (ExpressionLexer::Operator)t.d_val.toUInt();
     else
-        return Lexer::NoOp;
+        return ExpressionLexer::NoOp;
 }
-static bool _isUnop( const Lexer::Token& t )
+static bool _isUnop( const ExpressionLexer::Token& t )
 {
-    if( t.d_type == Lexer::Token::Op )
+    if( t.d_type == ExpressionLexer::Token::Op )
     {
         switch( t.d_val.toInt() )
         {
-        case Lexer::Minus:
-        case Lexer::Pound:
-        case Lexer::Not:
+        case ExpressionLexer::Minus:
+        case ExpressionLexer::Pound:
+        case ExpressionLexer::Not:
             return true;
         default:
             break;
@@ -1155,13 +1155,13 @@ static bool _isUnop( const Lexer::Token& t )
     return false;
 }
 
-Lexer::Operator ExpressionParser::subexpr(ExpressionParser::AstNode * n, quint32 limit, int level)
+ExpressionLexer::Operator ExpressionParser::subexpr(ExpressionParser::AstNode * n, quint32 limit, int level)
 {
     /*
     ** subexpr -> (simpleexp | unop subexpr) { binop subexpr }
     ** where 'binop' is any binary operator with a priority higher than 'limit'
     */
-    Lexer::Token tok = d_lex.peek();
+    ExpressionLexer::Token tok = d_lex.peek();
     if( _isUnop(tok) )
     {
         n->d_left = new AstNode( UnOp, tok.d_val );
@@ -1173,15 +1173,15 @@ Lexer::Operator ExpressionParser::subexpr(ExpressionParser::AstNode * n, quint32
     // qDebug() << QString(level*4,QChar(' ') ) << "subexpr: simpe|unop" << _toTypeStr( n->d_left->d_type ) << _toValStr( n->d_left->d_type, n->d_left->d_val );
     /* expand while operators have priorities higher than 'limit' */
     tok = d_lex.peek();
-    Lexer::Operator op = _getbinopr( tok );
-    while( op != Lexer::NoOp && priority[op].left > limit )
+    ExpressionLexer::Operator op = _getbinopr( tok );
+    while( op != ExpressionLexer::NoOp && priority[op].left > limit )
     {
         // qDebug() << QString(level*4,QChar(' ') ) << "subexpr: pass" << _toOpStr(op) << "prio left" << priority[op].left << "right" << priority[op].right << "level" << level;
         tok = d_lex.next();
 
         /* read sub-expression with higher priority */
         AstNode v2( BinOp, op );
-        Lexer::Operator nextop = subexpr( &v2, priority[op].right, level + 1 );
+        ExpressionLexer::Operator nextop = subexpr( &v2, priority[op].right, level + 1 );
 
         AstNode* opNode = new AstNode( BinOp, op );
         opNode->d_left = n->d_left;
@@ -1197,13 +1197,13 @@ Lexer::Operator ExpressionParser::subexpr(ExpressionParser::AstNode * n, quint32
 void ExpressionParser::simpleexp(ExpressionParser::AstNode * n)
 {
     /* simpleexp -> NUMBER | STRING | NIL | true | false | primaryexp */
-    Lexer::Token tok = d_lex.peek();
+    ExpressionLexer::Token tok = d_lex.peek();
     switch( tok.d_type )
     {
-    case Lexer::Token::Number:
-    case Lexer::Token::String:
-    case Lexer::Token::Bool:
-    case Lexer::Token::Nil:
+    case ExpressionLexer::Token::Number:
+    case ExpressionLexer::Token::String:
+    case ExpressionLexer::Token::Bool:
+    case ExpressionLexer::Token::Nil:
         n->d_left = new AstNode( Constant, tok.d_val );
         break;
     default:

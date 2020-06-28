@@ -592,7 +592,10 @@ int Engine2::ErrHandler( lua_State* L )
 
     e->d_breakHit = false;
     e->d_curScript = ar.source;
-    e->d_curLine = JitComposer::unpackRow2(ar.currentline);
+    if( ar.currentline == -1 )
+        e->d_curLine = 0;
+    else
+        e->d_curLine = JitComposer::unpackRow2(ar.currentline);
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
     e->notify( ErrorHit, e->d_curScript, e->d_curLine );

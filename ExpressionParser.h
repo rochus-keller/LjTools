@@ -47,7 +47,7 @@ namespace Lua
         int d_peekPtr;
     };
 
-    class Lexer
+    class ExpressionLexer
     {
     public:
         struct Token
@@ -136,12 +136,12 @@ namespace Lua
         void primaryexp(AstNode*);
         void simpleexp( AstNode* );
         void expr(AstNode*);
-        Lexer::Operator subexpr( AstNode*, quint32 limit, int level);
+        ExpressionLexer::Operator subexpr( AstNode*, quint32 limit, int level);
         void error( const char* msg );
 		int depthFirstExec(Engine2 *e, AstNode*);
     private:
         AstNode* d_top;
-        Lexer d_lex;
+        ExpressionLexer d_lex;
         QString d_error;
     };
 }

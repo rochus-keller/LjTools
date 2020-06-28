@@ -1,4 +1,6 @@
-This is a parser, browser, assembler and test VM for LuaJIT 2.0 bytecode written in C++ and Qt. See http://luajit.org/ for more information about LuaJIT. 
+## About this Project
+
+This is a parser, browser, assembler and test VM for LuaJIT 2.0 bytecode written in C++ and Qt. See http://luajit.org/ for more information about LuaJIT. There is also a validating Lua parser and IDE (see below).
 
 The goal of this project (work in progress) is to better understand how LuaJIT works, and to support the development of alternative front ends which generate LuaJIT bytecode (as it is e.g. done in https://github.com/rochus-keller/Oberon).
 
@@ -13,6 +15,25 @@ The editor supports semantic highlighting and navigation (CTRL+Click on ident), 
 
 Here is an Asm Editor screenshot:
 ![LjAsmEditor Screenshot](http://software.rochus-keller.info/LjAsmEditor_screenshot_1.png)
+
+
+### Lua parser and IDE features
+
+- Project file format: combine Lua modules to a single project
+- Implements Lua 5.1; successfully parses all puc-tests
+- Validates syntax and some semantics, reports errors and warnings (e.g. implicit global declaration gives a warning)
+- Automatic re-parse when edited, navigable issue list, marked issues in code
+- Syntax highlighting
+- Code navigation; jump to the declaration of an ident (only for locals)
+- Mark all idents refering to the same declaration
+- Cross-referencing: list all uses of a declaration for easy navigation
+- Browsing history, forward and backward navigation- Project file format: combine modules to a single project
+- Built-in LuaJIT engine
+- Integrated source level debugger with breakpoints, stack trace and locals view
+- A stack trace is also shown if TRAP evaluating to true is executed
+
+
+![Lua IDE Screenshot](http://software.rochus-keller.info/screenshot_luaide_0.1.png)
 
 ### Binary Versions
 

@@ -34,7 +34,7 @@ namespace Ljas
     {
         // class is thread-safe
     public:
-        enum Source { Lexer, Syntax, Semantics, Generator };
+        enum Source { Lexer, Syntax, Semantics, Generator, Runtime };
         struct Entry
         {
             quint32 d_line;
@@ -42,11 +42,10 @@ namespace Ljas
             quint16 d_source;
             QString d_msg;
             QString d_file;
-            bool operator==( const Entry& rhs )const { return d_line == rhs.d_line && d_col == rhs.d_col &&
-                        d_source == rhs.d_source && d_msg == rhs.d_msg; }
+            bool d_isErr;
+            Entry():d_isErr(true){}
         };
-        typedef QSet<Entry> EntryList;
-        typedef QHash<QString,EntryList> EntriesByFile;
+        typedef QList<Entry> EntryList;
 
         explicit Errors(QObject *parent = 0, bool threadExclusive = false );
 
@@ -65,16 +64,14 @@ namespace Ljas
 
         quint32 getErrCount() const;
         quint32 getWrnCount() const;
+        EntryList getAll() const;
+        EntryList getErrors() const;
+        EntryList getWarnings() const;
         EntryList getErrors(const QString& file) const;
-        EntriesByFile getErrors() const;
         EntryList getWarnings(const QString& file) const;
-        EntriesByFile getWarnings() const;
         quint32 getSyntaxErrCount() const { return d_numOfSyntaxErrs; }
 
         void clear();
-        void clearFile( const QString& file );
-        void clearFiles( const QStringList& files );
-        void update( const Errors&, bool overwrite = false );
 
         static const char* sourceName(int);
     protected:
@@ -84,8 +81,7 @@ namespace Ljas
         quint32 d_numOfErrs;
         quint32 d_numOfSyntaxErrs;
         quint32 d_numOfWrns;
-        EntriesByFile d_errs;
-        EntriesByFile d_wrns;
+        EntryList d_entries;
         QDir d_root;
         bool d_showWarnings;
         bool d_threadExclusive;

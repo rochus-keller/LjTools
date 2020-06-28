@@ -23,6 +23,7 @@
 #include "Terminal2.h"
 #include "BcViewer2.h"
 #include "LuaJitEngine.h"
+
 #include <QtDebug>
 #include <QDockWidget>
 #include <QApplication>
@@ -86,6 +87,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     d_edit = new CodeEditor(this);
     new Highlighter( d_edit->document() );
+    d_edit->setPaintIndents(false);
     d_edit->updateTabWidth();
 
     setDockNestingEnabled(true);
@@ -115,7 +117,7 @@ MainWindow::MainWindow(QWidget *parent)
 
 
     connect(d_edit, SIGNAL(modificationChanged(bool)), this, SLOT(onCaption()) );
-    connect(d_bcv,SIGNAL(sigGotoLine(int)),this,SLOT(onGotoLnr(int)));
+    connect(d_bcv,SIGNAL(sigGotoLine(quint32)),this,SLOT(onGotoLnr(quint32)));
     connect(d_edit,SIGNAL(cursorPositionChanged()),this,SLOT(onCursor()));
     connect(d_eng,SIGNAL(sigPrint(QString,bool)), d_term, SLOT(printText(QString,bool)) );
 }
@@ -321,7 +323,7 @@ void MainWindow::onCaption()
     }
 }
 
-void MainWindow::onGotoLnr(int lnr)
+void MainWindow::onGotoLnr(quint32 lnr)
 {
     if( d_lock )
         return;
@@ -432,6 +434,8 @@ void MainWindow::compile()
     d_lua->saveBinary(d_edit->toPlainText().toUtf8(), d_edit->getPath().toUtf8(),path.toUtf8());
     d_bcv->loadFrom(path);
     dir.remove(path);
+
+
 }
 
 int main(int argc, char *argv[])

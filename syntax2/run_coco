@@ -1,0 +1,10 @@
+../../Coco/Coco ./Lua.atg -trace FP -o . -namespace Lua > ./coco_out.txt
+
+mv ./Parser.h ../LuaParser.h
+mv ./Parser.cpp ../LuaParser.cpp
+
+mv ./LuaSynTree.h ..
+mv ./LuaSynTree.cpp ..
+
+mv ./LuaTokenType.h ..
+mv ./LuaTokenType.cpp ..

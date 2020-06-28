@@ -1,0 +1,141 @@
+// Original syntax copied from https://www.lua.org/manual/5.1/manual.html#8
+// Copyright (C) 1994-2012 Lua.org, PUC-Rio
+// modified by me@rochus-keller.ch, (c) 2020
+// renamed production 'function' to 'lambdecl_'
+// added lexer productions
+// reorganized to avoid ambiguities
+// removed direct left recursion, added pragmas
+// separate production per stat
+
+Lua ::= chunk
+
+chunk ::= {stat [';']} [laststat [';']]
+
+block ::= chunk
+
+stat ::=  
+	 assigOrCall_ 
+	 | dostat_
+	 | whilestat_
+	 | repeatstat_
+	 | ifstat_
+	 | forstat_
+	 | gfuncdecl_
+	 | localdecl_
+
+dostat_ ::= do block end
+
+whilestat_ ::= while exp do block end
+
+repeatstat_ ::= repeat block until exp
+
+ifstat_ ::= if exp then block {elseif exp then block} [else block] end
+
+forstat_ ::=
+	for Name (
+		'=' exp ',' exp [',' exp] do block end
+		| {',' Name} in explist do block end
+	)
+
+gfuncdecl_ ::= function funcname funcbody
+
+localdecl_ ::= 
+	local (
+		lfuncdecl_
+		| lvardecl_
+	)
+
+lfuncdecl_ ::= function Name funcbody
+
+lvardecl_ ::= namelist ['=' explist] 
+
+assigOrCall_ ::=
+	prefixexp [
+		assignment_ 
+		// | call_ // this call is unnecessary since already covered by prefixexp
+	]
+
+call_ ::= [ ':' Name ] args 
+
+assignment_ ::= {',' prefixexp } '=' explist
+
+laststat ::= return [explist] | break
+
+funcname ::= Name { desig_ } [':' Name]
+
+varlist- ::= var {',' var}
+
+var- ::=  prefixexp
+	// orig: Name | prefixexp '[' exp ']' | prefixexp '.' Name 
+
+namelist ::= Name { \LL:2\ ',' Name}
+
+explist ::= exp { ',' exp }
+
+exp ::=  
+	nil exp_nlr_
+	| false exp_nlr_
+	| true exp_nlr_
+	| Number exp_nlr_
+	| String exp_nlr_
+	| '...' exp_nlr_
+	| lambdecl_ exp_nlr_
+	| prefixexp exp_nlr_
+	| tableconstructor exp_nlr_
+	| unop exp exp_nlr_
+
+exp_nlr_* ::= [ binop exp exp_nlr_ ]
+
+prefixexp ::= 
+	( Name | '(' exp ')' ) { 
+		index_
+		| desig_
+		| call_  
+	}
+	// orig: var | functioncall | '(' exp ')'
+
+index_ ::= '[' exp ']' 
+
+desig_ ::= '.' Name 
+
+functioncall- ::=  
+	prefixexp [ ':' Name ] args
+	// orig: prefixexp args | prefixexp ':' Name args 
+
+args ::=  '(' [explist] ')' | tableconstructor | String 
+
+lambdecl_ ::= function funcbody
+
+funcbody ::= '(' [parlist] ')' block end
+
+parlist ::= namelist [',' '...'] | '...'
+
+tableconstructor ::= '{' [fieldlist] '}'
+
+fieldlist ::= field { \LA: 1:(',' | ';') & 2:!'}'\ fieldsep field} [fieldsep]
+
+field ::= index_ '=' exp 
+	| \LL:2\ Name '=' exp 
+	| exp
+
+fieldsep ::= ',' | ';'
+
+binop ::= '+' | '-' | '*' | '/' | '^' | '%' | '..' | 
+	 '<' | '<=' | '>' | '>=' | '==' | '~=' | 
+	 and | or
+
+unop ::= '-' | not | '#'
+
+//// lexer symbols
+
+Name ::=
+Number ::=
+String ::=
+comment- ::= '--' '--[' ']--'
+Comment ::=
+Designator ::= 
+
+/// Pragmas
+%module ::= 'LjTools'
+%namespace ::= 'Lua'
+%suppress ::= ';' ','
