@@ -26,6 +26,7 @@
 #include <iostream>
 #include <QTime>
 #include <QFileInfo>
+#include <QDir>
 
 using namespace Lua;
 
@@ -575,27 +576,18 @@ void Engine2::setActiveLevel(int level)
 
 int Engine2::ErrHandler( lua_State* L )
 {
-    const char* msg = lua_tostring(L, 1 );
+    // const char* msg = lua_tostring(L, 1 );
 
     Engine2* e = Engine2::getInst();
 
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         return 1; // don't break if user wants to abort
 
-    lua_Debug ar;
-    int res = lua_getstack(L, 0, &ar );
-    if( res != 1 )
-        return 1;
-    res = lua_getinfo(L,"nlS", &ar );
-    if( res != 1 )
-        return 1;
+    StackLevel l = e->getStackLevel(0,false);
 
     e->d_breakHit = false;
-    e->d_curScript = ar.source;
-    if( ar.currentline == -1 )
-        e->d_curLine = 0;
-    else
-        e->d_curLine = JitComposer::unpackRow2(ar.currentline);
+    e->d_curScript = l.d_source;
+    e->d_curLine = l.d_line;
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
     e->notify( ErrorHit, e->d_curScript, e->d_curLine );
@@ -616,6 +608,19 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
     Engine2* e = Engine2::getInst();
     Q_ASSERT( e != 0 );
 
+    if( ar->event == LUA_HOOKRET )
+    {
+        // HOOKRET of a given line comes after its HOOKLINE
+        if( e->getCmd() == StepOver || e->getCmd() == StepOut )
+        {
+            StackLevel l = e->getStackLevel(0,false,ar);
+            if( e->d_stepBreak.first == l.d_source &&
+                    e->d_stepBreak.second.second.contains( l.d_line ) )
+                e->d_dbgCmd = Engine2::StepInto;
+        }
+        return;
+    }
+
     if( /* e->d_aliveSignal && */ e->d_aliveCount > s_aliveCount / 2 && e->d_dbgShell )
     {
         // even if aliveSignal is not enabled it is necessary to give calculation time to the shell
@@ -635,25 +640,29 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
     }
 
     e->d_aliveCount++;
-    lua_getinfo( L, "nlS", ar );
-    const QByteArray source = ar->source;
-    const quint32 newLineNr = JitComposer::unpackRow2(ar->currentline);
-    const bool lineChanged = ( e->d_curLine != newLineNr || e->d_curScript != source );
+    // NOTE: ar->event might be useful for step out
+    StackLevel l = e->getStackLevel(0,false,ar);
+    const quint32 newLineNr = l.d_line;
+    const bool lineChanged = ( e->d_curLine != newLineNr || e->d_curScript != l.d_source );
     if( lineChanged )
     {
         e->d_breakHit = false;
-        e->d_curScript = source;
+        e->d_curScript = l.d_source;
         e->d_curLine = newLineNr;
         e->d_activeLevel = 0;
 
-        if( e->isStepping() )
+        if( ( e->getCmd() == Engine2::StepInto ) ||
+            ( e->getCmd() == Engine2::StepOver && e->d_stepBreak.first == e->d_curScript &&
+                                e->d_stepBreak.second.first != e->d_curLine &&
+                                  e->d_stepBreak.second.second.contains( e->d_curLine ) ) )
         {
             e->d_waitForCommand = true;
-			e->notify( LineHit, e->d_curScript, e->d_curLine );
+            e->d_breakHit = true;
+            e->notify( LineHit, e->d_curScript, e->d_curLine );
             if( e->d_dbgShell )
                 e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
             e->d_waitForCommand = false;
-        }else if( e->d_breaks.value( source ).contains( e->d_curLine ) )
+        }else if( e->d_breaks.value( e->d_curScript ).contains( e->d_curLine ) )
         {
             e->d_waitForCommand = true;
             e->d_breakHit = true;
@@ -725,7 +734,7 @@ void Engine2::setDebug(bool on)
     if( d_debugging == on )
         return;
     if( on )
-        lua_sethook( d_ctx, debugHook, LUA_MASKLINE, 1);
+        lua_sethook( d_ctx, debugHook, LUA_MASKLINE | LUA_MASKRET, 1);
     else if( d_aliveSignal )
         lua_sethook( d_ctx, aliveSignal, LUA_MASKCOUNT, s_aliveCount); // get's a hook call with each bytecode op when 1
     else
@@ -748,9 +757,19 @@ void Engine2::setAliveSignal(bool on)
         lua_sethook( d_ctx, aliveSignal, 0, 0);
 }
 
-void Engine2::runToNextLine()
+void Engine2::runToNextLine(DebugCommand where)
 {
-    d_dbgCmd = RunToNextLine;
+    Q_ASSERT( where >= StepInto && where <= StepOut );
+    d_dbgCmd = where;
+    if( where == StepOver || where == StepOut )
+    {
+        StackLevel l = getStackLevel(0,true);
+        d_stepBreak.first = l.d_source;
+        d_stepBreak.second.second = l.d_lines;
+        d_stepBreak.second.first = l.d_line;
+        if( d_stepBreak.second.second.isEmpty() )
+            d_dbgCmd = StepInto;
+    }
     d_waitForCommand = false;
 }
 
@@ -772,16 +791,10 @@ int Engine2::TRAP(lua_State* L)
         doIt = lua_toboolean(L,-1);
     if( !doIt )
         return 0;
-    lua_Debug ar;
-    int res = lua_getstack(L, 0, &ar );
-    if( res != 1 )
-        return 0;
-    res = lua_getinfo(L,"nlS", &ar );
-    if( res != 1 )
-        return 0;
+    StackLevel l = e->getStackLevel(0,false);
 
-    e->d_curScript = ar.source;
-    e->d_curLine = JitComposer::unpackRow2(ar.currentline);
+    e->d_curScript = l.d_source;
+    e->d_curLine = l.d_line;
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
     e->d_breakHit = true;
@@ -842,6 +855,7 @@ Engine2::StackLevels Engine2::getStackTrace() const
     int level =  0;
     while( true )
     {
+#if 0
         lua_Debug dbg;
         int res = lua_getstack(d_ctx, level, &dbg );
         if( res != 1 )
@@ -856,10 +870,71 @@ Engine2::StackLevels Engine2::getStackTrace() const
         l.d_source = dbg.source;
         l.d_inC = *dbg.what == 'C';
         ls << l;
-
+#endif
+        StackLevel l = getStackLevel(level,false);
+        if( !l.d_valid )
+            break;
+        ls << l;
         level++;
     }
     return ls;
+}
+
+Engine2::StackLevel Engine2::getStackLevel(quint16 level, bool withValidLines, lua_Debug* ar) const
+{
+    return getStackLevel( d_ctx, level, withValidLines, ar );
+}
+
+Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool withValidLines, lua_Debug* ar )
+{
+    StackLevel l;
+    lua_Debug dbg;
+    if( ar == 0 )
+    {
+        int res = lua_getstack(L, level, &dbg );
+        if( res != 1 )
+        {
+            l.d_valid = false;
+            return l;
+        }
+        ar = &dbg;
+    }
+    if( lua_getinfo(L, withValidLines ? "nlSL" : "nlS", ar ) == 0 )
+    {
+        qCritical() << "Engine2::getStackLevel lua_getinfo error";
+        l.d_valid = false;
+        return l;
+    }
+
+    const bool inLua = *(ar->what) == 'L' || *(ar->what) == 'm';
+    l.d_level = level;
+    l.d_line = !inLua ? 0 : JitComposer::unpackRow2(ar->currentline);
+    l.d_what = ar->namewhat;
+    l.d_name = ( ar->name ? ar->name : "" );
+    l.d_source = *ar->source == '@' ? ar->source + 1 : ar->source;
+    if( QFileInfo(l.d_source).isRelative() )
+        l.d_source = QDir::cleanPath(QDir::current().absoluteFilePath(l.d_source)).toUtf8();
+    l.d_inC = *(ar->what) == 'C';
+
+    if( withValidLines )
+    {
+        // pushes onto the stack a table whose indices are the numbers of the lines that are valid on the function
+        const int t = lua_gettop(L);
+        if( inLua )
+        {
+            lua_pushnil(L);
+            while( lua_next(L, t) != 0 ) // not ordered!
+            {
+                lua_pop(L, 1); // remove unused value
+                const quint32 line = JitComposer::unpackRow2(lua_tointeger(L, -1 ));
+                l.d_lines.insert(line);
+            }
+            lua_pop(L, 2); // key and t
+        }else
+            lua_pop(L,1); // t
+    }
+
+    return l;
 }
 
 static bool sortLocals( const Lua::Engine2::LocalVar& lhs, const Lua::Engine2::LocalVar& rhs )
@@ -886,9 +961,11 @@ static inline Engine2::LocalVar::Type luaToValType( int t )
         return Engine2::LocalVar::NUMBER;
     case LUA_TSTRING:
         return Engine2::LocalVar::STRING;
+    case 10:
+        return Engine2::LocalVar::CDATA;
 
     default:
-        return Engine2::LocalVar::NIL;
+        return Engine2::LocalVar::UNKNOWN;
     }
 }
 
@@ -1082,18 +1159,14 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             return QVariant::fromValue(VarAddress(LocalVar::TABLE, lua_topointer(d_ctx,arg) ) );
         break;
     case LUA_TUSERDATA:
-        {
-            if( luaL_callmeta(d_ctx,arg,"__tostring") )
-            {
-                QByteArray str = lua_tostring(d_ctx, -1 );
-                lua_pop(d_ctx,1);
-                return str;
-            }// else
-            return QVariant::fromValue(VarAddress(luaToValType(t), lua_topointer(d_ctx,arg) ));
-        }
-        break;
     default:
-        return QVariant::fromValue(VarAddress(luaToValType(t),lua_topointer(d_ctx,arg)));
+        if( luaL_callmeta(d_ctx,arg,"__tostring") )
+        {
+            QByteArray str = lua_tostring(d_ctx, -1 );
+            lua_pop(d_ctx,1);
+            return str;
+        }// else
+        return QVariant::fromValue(VarAddress(luaToValType(t), lua_topointer(d_ctx,arg) ));
     }
     return QVariant();
 }

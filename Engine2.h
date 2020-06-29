@@ -60,21 +60,23 @@ namespace Lua
         void setPrintToStdout(bool on) { d_printToStdout = on; }
 
         typedef QSet<quint32> Breaks; // Zeile, zero-based
-        typedef QMap<QByteArray,Breaks> BreaksPerScript; // @Filename oder :RepositoryName
+        typedef QPair<QByteArray, QPair<quint32,QSet<quint32> > > Break; // filename -> prev line, valid line numbers
+        typedef QMap<QByteArray,Breaks> BreaksPerScript; // filename -> line numbers
 
 		// Debugging
         void setDbgShell( DbgShell* ds ) { d_dbgShell = ds; }
 		void setDebug( bool on );
         void setAliveSignal( bool on );
         bool isDebug() const { return d_debugging; }
-		enum DebugCommand { RunToNextLine, RunToBreakPoint, Abort, AbortSilently };
-        void runToNextLine();
+        enum DebugCommand { StepInto, StepOver, StepOut, RunToBreakPoint, Abort, AbortSilently };
+        void runToNextLine(DebugCommand where = StepInto);
         void runToBreakPoint();
         static int TRAP( lua_State* L );
         void setDefaultCmd( DebugCommand c ) { d_defaultDbgCmd = c; }
         DebugCommand getDefaultCmd() const { return d_defaultDbgCmd; }
         void terminate(bool silent = false);
-        bool isStepping() const { return d_dbgCmd == RunToNextLine; }
+        DebugCommand getCmd() const { return d_dbgCmd; }
+        bool isStepping() const { return d_dbgCmd == StepInto || d_dbgCmd == StepOver || d_dbgCmd == StepOut; }
         bool isWaiting() const { return d_waitForCommand; }
         bool isBreakHit() const { return d_breakHit; }
         bool isAborted() const { return d_dbgCmd == AbortSilently || d_dbgCmd == Abort; }
@@ -88,17 +90,20 @@ namespace Lua
         {
             quint16 d_level;
             bool d_inC;
+            bool d_valid;
             QByteArray d_name;
             QByteArray d_what;
             QByteArray d_source;
             quint32 d_line;
-            StackLevel():d_level(0),d_inC(false){}
+            QSet<quint32> d_lines;
+            StackLevel():d_level(0),d_inC(false),d_valid(true),d_line(0){}
         };
         typedef QList<StackLevel> StackLevels;
         StackLevels getStackTrace() const;
+        StackLevel getStackLevel(quint16 level, bool withValidLines = true, lua_Debug* ar = 0) const;
         struct LocalVar
         {
-            enum Type { NIL, BOOL, NUMBER, STRING, FUNC, TABLE, STRUCT };
+            enum Type { NIL, BOOL, NUMBER, STRING, FUNC, TABLE, STRUCT, CDATA, UNKNOWN };
             QByteArray d_name;
             QVariant d_value;
             quint8 d_type;
@@ -177,7 +182,8 @@ namespace Lua
 	protected:
 		virtual void notify( MessageType messageType, const QByteArray& val1 = "", int val2 = 0 );
     private:
-		static void debugHook(lua_State *L, lua_Debug *ar);
+        static StackLevel getStackLevel(lua_State *L, quint16 level, bool withValidLines, lua_Debug* ar);
+        static void debugHook(lua_State *L, lua_Debug *ar);
         static void aliveSignal(lua_State *L, lua_Debug *ar);
         static int ErrHandler( lua_State* L );
         void notifyStart();
@@ -188,6 +194,7 @@ namespace Lua
         static int _writeImp(lua_State *L, bool err);
 
 		BreaksPerScript d_breaks;
+        Break d_stepBreak;
         QByteArray d_curScript;
 		QByteArray d_curBinary;
         quint32 d_curLine;

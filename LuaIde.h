@@ -132,7 +132,9 @@ namespace Lua
         void onUpdateLocation(int line, int col );
         void onXrefDblClicked();
         void onToggleBreakPt();
-        void onSingleStep();
+        void onStepInto();
+        void onStepOver();
+        void onStepOut();
         void onContinue();
         void onShowLlBc();
         void onWorkingDir();
@@ -162,6 +164,8 @@ namespace Lua
         QAction* d_dbgAbort;
         QAction* d_dbgContinue;
         QAction* d_dbgStepIn;
+        QAction* d_dbgStepOver;
+        QAction* d_dbgStepOut;
         bool d_lock;
         bool d_filesDirty;
         bool d_pushBackLock;

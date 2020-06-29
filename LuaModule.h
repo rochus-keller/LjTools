@@ -51,6 +51,8 @@ namespace Lua
             static const char* s_tagName[];
             Token d_tok;
             QList< Ref<SymbolUse> > d_uses;
+            Thing(){}
+            virtual ~Thing(){}
             virtual int getTag() const { return T_Thing; }
             virtual bool isScope() const { return false; }
             virtual bool isLhsUse() const { return false; }

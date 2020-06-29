@@ -56,6 +56,8 @@ using namespace Lua;
 #define OBN_ABORT_SC "CTRL+SHIFT+Y"
 #define OBN_CONTINUE_SC "CTRL+Y"
 #define OBN_STEPIN_SC "CTRL+SHIFT+I"
+#define OBN_STEPOVER_SC "CTRL+SHIFT+O"
+#define OBN_STEPOUT_SC "SHIFT+F11" // TODO
 #define OBN_ENDBG_SC "F4"
 #define OBN_TOGBP_SC "F8"
 #define OBN_GOBACK_SC "ALT+CTRL+Left"
@@ -67,6 +69,8 @@ using namespace Lua;
 #define OBN_ABORT_SC "SHIFT+F5"
 #define OBN_CONTINUE_SC "F5"
 #define OBN_STEPIN_SC "F11"
+#define OBN_STEPOVER_SC "F10"
+#define OBN_STEPOUT_SC "SHIFT+F11"
 #define OBN_ENDBG_SC "F8"
 #define OBN_TOGBP_SC "F9"
 #define OBN_GOBACK_SC "ALT+Left"
@@ -97,11 +101,11 @@ struct ScopeRef : public Module::Ref<Module::Scope>
     ScopeRef(Module::Scope* s = 0):Ref(s) {}
 };
 Q_DECLARE_METATYPE(ScopeRef)
-struct ExRef : public Module::Ref<Module::Thing>
+struct ThingRef : public Module::Ref<Module::Thing>
 {
-    ExRef(Module::Thing* n = 0):Ref(n) {}
+    ThingRef(Module::Thing* n = 0):Ref(n) {}
 };
-Q_DECLARE_METATYPE(ExRef)
+Q_DECLARE_METATYPE(ThingRef)
 
 class LuaIde::Editor : public CodeEditor
 {
@@ -129,17 +133,17 @@ public:
     }
 
 
-    typedef QList<Module::Thing*> ExList;
+    typedef QList<ThingRef> ExList;
 
     void markNonTerms(const ExList& syms)
     {
         d_nonTerms.clear();
         QTextCharFormat format;
         format.setBackground( QColor(237,235,243) );
-        foreach( Module::Thing* s, syms )
+        foreach( const Module::Ref<Module::Thing>& s, syms )
         {
             QTextCursor c( document()->findBlockByNumber( s->d_tok.d_lineNr - 1) );
-            c.setPosition( c.position() + s->d_tok.d_colNr - 1 );
+            c.setPosition( c.position() + qMax(s->d_tok.d_colNr - 1,0) );
             int pos = c.position();
             c.setPosition( pos + s->d_tok.d_val.size(), QTextCursor::KeepAnchor );
 
@@ -175,7 +179,7 @@ public:
             {
                 QTextCursor c( document()->findBlockByNumber(l[i].d_line - 1) );
 
-                c.setPosition( c.position() + l[i].d_col - 1 );
+                c.setPosition( c.position() + qMax(l[i].d_col - 1,0) );
                 c.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
 
                 QTextEdit::ExtraSelection sel;
@@ -445,7 +449,17 @@ LuaIde::LuaIde(Engine2* lua, QWidget *parent)
     d_dbgStepIn->setShortcutContext(Qt::ApplicationShortcut);
     d_dbgStepIn->setShortcut(tr(OBN_STEPIN_SC));
     addAction(d_dbgStepIn);
-    connect( d_dbgStepIn, SIGNAL(triggered(bool)),this,SLOT(onSingleStep()) );
+    connect( d_dbgStepIn, SIGNAL(triggered(bool)),this,SLOT(onStepInto()) );
+    d_dbgStepOver = new QAction(tr("Step Over"),this);
+    d_dbgStepOver->setShortcutContext(Qt::ApplicationShortcut);
+    d_dbgStepOver->setShortcut(tr(OBN_STEPOVER_SC));
+    addAction(d_dbgStepOver);
+    connect( d_dbgStepOver, SIGNAL(triggered(bool)),this,SLOT(onStepOver()) );
+    d_dbgStepOut = new QAction(tr("Step Out"),this);
+    d_dbgStepOut->setShortcutContext(Qt::ApplicationShortcut);
+    d_dbgStepOut->setShortcut(tr(OBN_STEPOUT_SC));
+    addAction(d_dbgStepOut);
+    connect( d_dbgStepOut, SIGNAL(triggered(bool)),this,SLOT(onStepOut()) );
 
     enableDbgMenu();
 
@@ -745,6 +759,8 @@ void LuaIde::createMenuBar()
     pop->addCommand( "Enable Debugging", this, SLOT(onEnableDebug()),tr(OBN_ENDBG_SC), false );
     pop->addCommand( "Toggle Breakpoint", this, SLOT(onToggleBreakPt()), tr(OBN_TOGBP_SC), false);
     pop->addAction( d_dbgStepIn );
+    pop->addAction( d_dbgStepOver );
+    pop->addAction( d_dbgStepOut );
     pop->addAction( d_dbgBreak );
     pop->addAction( d_dbgContinue );
     pop->addAction( d_dbgAbort );
@@ -778,7 +794,7 @@ void LuaIde::onCompile()
 
 void LuaIde::onRun()
 {
-    ENABLED_IF( !d_pro->getFiles().isEmpty() && !d_lua->isExecuting() );
+    ENABLED_IF( !d_pro->getFiles().isEmpty() && !d_lua->isExecuting() && !d_filesDirty );
 
     if( !compile(true) )
         return;
@@ -789,7 +805,8 @@ void LuaIde::onRun()
     bool hasErrors = false;
     foreach( const QString& path, d_pro->getFileOrder() )
     {
-        if( !d_lua->executeFile( path.toUtf8() ) )
+        d_lua->executeCmd( QString("package.loaded[\"%1\"]=nil").arg(QFileInfo(path).baseName()).toUtf8(), "terminal" );
+        if( !d_lua->executeFile(path.toUtf8()) )
         {
             hasErrors = true;
         }
@@ -1355,6 +1372,8 @@ void LuaIde::addDebugMenu(Gui::AutoMenu* pop)
     sub->addCommand( "Enable Debugging", this, SLOT(onEnableDebug()),tr(OBN_ENDBG_SC), false );
     sub->addCommand( "Toggle Breakpoint", this, SLOT(onToggleBreakPt()), tr(OBN_TOGBP_SC), false);
     sub->addAction( d_dbgStepIn );
+    sub->addAction( d_dbgStepOver );
+    sub->addAction( d_dbgStepOut );
     sub->addAction( d_dbgBreak );
     sub->addAction( d_dbgContinue );
     sub->addAction( d_dbgAbort );
@@ -1408,11 +1427,11 @@ bool LuaIde::luaRuntimeMessage(const QByteArray& msg, const QString& file )
         return true;
     }
     d_pro->getErrs()->error(Ljas::Errors::Runtime, file, 0, 0, msg );
-    return true;
+    return false;
     // qWarning() << "Unknown Lua error message format:" << msg;
 }
 
-static bool sortExList( const Module::Thing* lhs, Module::Thing* rhs )
+static bool sortExList( const ThingRef& lhs, const ThingRef& rhs )
 {
     const QString ln = lhs->d_tok.d_sourcePath;
     const QString rn = rhs->d_tok.d_sourcePath;
@@ -1435,15 +1454,15 @@ void LuaIde::fillXref()
     edit->getCursorPosition( &line, &col );
     line += 1;
     col += 1;
-    Module::Thing* hitSym = d_pro->findSymbolBySourcePos(edit->getPath(), line, col);
+    ThingRef hitSym = d_pro->findSymbolBySourcePos(edit->getPath(), line, col);
     if( hitSym )
     {
-        Module::Thing* refSym = hitSym;
+        Module::Thing* refSym = hitSym.data();
         if( refSym->getTag() == Module::Thing::T_SymbolUse )
             refSym = static_cast<Module::SymbolUse*>(refSym)->d_sym;
         Editor::ExList l1, l2;
-        l1 << refSym;
-        l2 << refSym;
+        l1.append(refSym);
+        l2.append(refSym);
         foreach( const Module::Ref<Module::SymbolUse>& e, refSym->d_uses )
         {
             l2 << e.data();
@@ -1495,17 +1514,17 @@ void LuaIde::fillXref()
         d_xrefTitle->setText(QString("%1 '%2'").arg(type).arg(refSym->d_tok.d_val.constData()));
 
         d_xref->clear();
-        foreach( Module::Thing* e, l2 )
+        foreach( const ThingRef& e, l2 )
         {
             QTreeWidgetItem* i = new QTreeWidgetItem(d_xref);
             i->setText( 0, QString("%1 (%2:%3%4)")
                         .arg(QFileInfo(e->d_tok.d_sourcePath).baseName())
                         .arg(e->d_tok.d_lineNr).arg(e->d_tok.d_colNr)
                         .arg( e->isImplicitDecl() ? " idecl" : e == refSym ? " decl" : e->isLhsUse() ? " lhs" : "" ));
-            if( e == hitSym )
+            if( e.data() == hitSym.data() )
                 i->setFont(0,f);
             i->setToolTip( 0, i->text(0) );
-            i->setData( 0, Qt::UserRole, QVariant::fromValue( ExRef(e) ) );
+            i->setData( 0, Qt::UserRole, QVariant::fromValue( e ) );
             if( e->d_tok.d_sourcePath != edit->getPath() )
                 i->setForeground( 0, Qt::gray );
         }
@@ -1533,16 +1552,13 @@ void LuaIde::fillStack()
         {
             item->setText(2,QString("%1").arg(l.d_line));
             item->setData(2, Qt::UserRole, l.d_line );
-            QString path = l.d_source;
-            if( path.startsWith('@') )
-                path = path.mid(1);
-            path = relativeToAbsolutePath(path);
+            const QString path = relativeToAbsolutePath(l.d_source);
             item->setText(3, QFileInfo(path).baseName() );
             item->setData(3, Qt::UserRole, path );
             item->setToolTip(3, path );
             if( !opened )
             {
-                showEditor(l.d_source, l.d_line, 0, true );
+                showEditor(path, l.d_line, 1, true );
                 d_lua->setActiveLevel(level);
                 opened = true;
             }
@@ -1572,6 +1588,12 @@ static void typeAddr( QTreeWidgetItem* item, const QVariant& val )
             break;
         case Engine2::LocalVar::STRUCT:
             item->setText(1, "struct");
+            break;
+        case Engine2::LocalVar::CDATA:
+            item->setText(1, "cdata");
+            break;
+        case Engine2::LocalVar::UNKNOWN:
+            item->setText(1, "<unknown>");
             break;
         }
     }else if( val.type() == QMetaType::QVariantMap)
@@ -1616,7 +1638,7 @@ void LuaIde::fillLocals()
         QTreeWidgetItem* item = new QTreeWidgetItem(d_locals);
         QString name = v.d_name;
         if( v.d_isUv )
-            name = "(" + name + ")";
+            name = name + "'";
         item->setText(0,name);
         if( v.d_value.canConvert<Lua::Engine2::VarAddress>() )
         {
@@ -1627,7 +1649,10 @@ void LuaIde::fillLocals()
             fillLocalSubs(item,v.d_value.toMap() );
         }else if( JitBytecode::isString(v.d_value) )
         {
-            item->setText(1, "\"" + v.d_value.toString().simplified() + "\"");
+            if( v.d_type == Engine2::LocalVar::CDATA || v.d_type == Engine2::LocalVar::UNKNOWN )
+                item->setText(1, v.d_value.toString().simplified());
+            else
+                item->setText(1, "\"" + v.d_value.toString().simplified() + "\"");
             item->setToolTip(1, v.d_value.toString() );
         }else if( !v.d_value.isNull() )
             item->setText(1,v.d_value.toString());
@@ -1646,6 +1671,12 @@ void LuaIde::fillLocals()
                 break;
             case Engine2::LocalVar::STRUCT:
                 item->setText(1, "struct");
+                break;
+            case Engine2::LocalVar::CDATA:
+                item->setText(1, "cdata");
+                break;
+            case Engine2::LocalVar::UNKNOWN:
+                item->setText(1, "<unknown>");
                 break;
             case Engine2::LocalVar::STRING:
                 item->setText(1, "\"" + v.d_value.toString().simplified() + "\"");
@@ -1672,6 +1703,8 @@ void LuaIde::enableDbgMenu()
     d_dbgAbort->setEnabled(d_lua->isWaiting());
     d_dbgContinue->setEnabled(d_lua->isWaiting());
     d_dbgStepIn->setEnabled(d_lua->isWaiting() && d_lua->isDebug() );
+    d_dbgStepOver->setEnabled(d_lua->isWaiting() && d_lua->isDebug() );
+    d_dbgStepOut->setEnabled(d_lua->isWaiting() && d_lua->isDebug() );
 }
 
 void LuaIde::handleGoBack()
@@ -1706,7 +1739,7 @@ void LuaIde::onXrefDblClicked()
     QTreeWidgetItem* item = d_xref->currentItem();
     if( item )
     {
-        ExRef e = item->data(0,Qt::UserRole).value<ExRef>();
+        ThingRef e = item->data(0,Qt::UserRole).value<ThingRef>();
         Q_ASSERT( !e.isNull() );
         showEditor( e->d_tok.d_sourcePath, e->d_tok.d_lineNr, e->d_tok.d_colNr );
     }
@@ -1725,11 +1758,21 @@ void LuaIde::onToggleBreakPt()
         d_lua->removeBreak( edit->getPath().toUtf8(), line + 1 );
 }
 
-void LuaIde::onSingleStep()
+void LuaIde::onStepInto()
 {
     // ENABLED_IF( d_lua->isWaiting() );
 
     d_lua->runToNextLine();
+}
+
+void LuaIde::onStepOver()
+{
+    d_lua->runToNextLine(Engine2::StepOver);
+}
+
+void LuaIde::onStepOut()
+{
+    d_lua->runToNextLine(Engine2::StepOut);
 }
 
 void LuaIde::onContinue()
@@ -1845,7 +1888,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("Lua IDE");
-    a.setApplicationVersion("0.1");
+    a.setApplicationVersion("0.2");
     a.setStyle("Fusion");
 
     LuaIde w;
