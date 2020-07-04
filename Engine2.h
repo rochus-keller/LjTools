@@ -72,6 +72,7 @@ namespace Lua
         void runToNextLine(DebugCommand where = StepInto);
         void runToBreakPoint();
         static int TRAP( lua_State* L );
+        static int TRACE( lua_State* L );
         void setDefaultCmd( DebugCommand c ) { d_defaultDbgCmd = c; }
         DebugCommand getDefaultCmd() const { return d_defaultDbgCmd; }
         void terminate(bool silent = false);

@@ -798,6 +798,7 @@ int Engine2::TRAP(lua_State* L)
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
     e->d_breakHit = true;
+    e->setDebug(true);
     e->notify( BreakHit, e->d_curScript, e->d_curLine );
     if( e->d_dbgShell )
         e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
@@ -810,8 +811,28 @@ int Engine2::TRAP(lua_State* L)
     return 0;
 }
 
+int Engine2::TRACE(lua_State* L)
+{
+    QFile out("trace.log");
+    if( !out.open(QIODevice::Append) )
+        qCritical() << "ERR: cannot open log for writing";
+    else
+    {
+        for( int i = 1; i <= lua_gettop(L); i++ )
+        {
+            if( i != 1 )
+                out.write("\t");
+            out.write(lua_tostring(L,i));
+        }
+        out.write("\n");
+    }
+    return 0;
+}
+
 void Engine2::terminate(bool silent)
 {
+    if( !isDebug() )
+        setDebug(true);
 	d_dbgCmd = (silent)?AbortSilently:Abort;
     d_waitForCommand = false;
 }
@@ -906,15 +927,17 @@ Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool wit
         return l;
     }
 
-    const bool inLua = *(ar->what) == 'L' || *(ar->what) == 'm';
+    const char * what = ar->what;
+    const int curline = ar->currentline;
+    const bool inLua = *(what) == 'L' || *(what) == 'm';
     l.d_level = level;
-    l.d_line = !inLua ? 0 : JitComposer::unpackRow2(ar->currentline);
+    l.d_line = !inLua ? 0 : JitComposer::unpackRow2(curline);
     l.d_what = ar->namewhat;
     l.d_name = ( ar->name ? ar->name : "" );
     l.d_source = *ar->source == '@' ? ar->source + 1 : ar->source;
     if( QFileInfo(l.d_source).isRelative() )
         l.d_source = QDir::cleanPath(QDir::current().absoluteFilePath(l.d_source)).toUtf8();
-    l.d_inC = *(ar->what) == 'C';
+    l.d_inC = *(what) == 'C';
 
     if( withValidLines )
     {

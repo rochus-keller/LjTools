@@ -357,26 +357,6 @@ static void messageHander(QtMsgType type, const QMessageLogContext& ctx, const Q
     report(type,message);
 }
 
-static void loadLuaLib( Lua::Engine2* lua, const QByteArray& name )
-{
-    QFile lib( QString(":/scripts/%1.lua").arg(name.constData()) );
-    lib.open(QIODevice::ReadOnly);
-    if( !lua->addSourceLib( lib.readAll(), name ) )
-        qCritical() << "compiling" << name << ":" << lua->getLastError();
-}
-
-static bool preloadLib( Project* pro, const QByteArray& name )
-{
-    QFile f( QString(":/oakwood/%1.Def" ).arg(name.constData() ) );
-    if( !f.open(QIODevice::ReadOnly) )
-    {
-        qCritical() << "unknown preload" << name;
-        return false;
-    }
-    pro->getFc()->addFile( name, f.readAll() );
-    return true;
-}
-
 LuaIde::LuaIde(Engine2* lua, QWidget *parent)
     : QMainWindow(parent),d_lock(false),d_filesDirty(false),d_pushBackLock(false)
 {
@@ -401,6 +381,9 @@ LuaIde::LuaIde(Engine2* lua, QWidget *parent)
     lua_pushcfunction( d_lua->getCtx(), Engine2::TRAP );
     lua_setglobal( d_lua->getCtx(), "TRAP" );
     d_pro->addBuiltIn("TRAP");
+    lua_pushcfunction( d_lua->getCtx(), Engine2::TRACE );
+    lua_setglobal( d_lua->getCtx(), "TRACE" );
+    d_pro->addBuiltIn("TRACE");
 
     d_dbg = new Debugger(this);
     d_lua->setDbgShell(d_dbg);
@@ -526,15 +509,18 @@ void LuaIde::logMessage(const QString& str, bool err)
 
 void LuaIde::closeEvent(QCloseEvent* event)
 {
+    if( d_lua->isExecuting() )
+    {
+        QMessageBox::warning(this,tr("Closing Main Window"), tr("Cannot quit IDE when Lua is running") );
+        event->setAccepted(false);
+        return;
+    }
     QSettings s;
     s.setValue( "DockState", saveState() );
     const bool ok = checkSaved( tr("Quit Application"));
     event->setAccepted(ok);
-    if( ok )
-    {
-        d_lua->terminate(true);
-        //SysInnerLib::quit();
-    }
+
+    qApp->quit();
 }
 
 void LuaIde::createTerminal()
@@ -722,7 +708,7 @@ void LuaIde::createMenuBar()
     pop->addAutoCommand( "Print...", SLOT(handlePrint()), tr("CTRL+P"), true );
     pop->addAutoCommand( "Export PDF...", SLOT(handleExportPdf()), tr("CTRL+SHIFT+P"), true );
     pop->addSeparator();
-    pop->addAction(tr("Quit"),qApp,SLOT(quit()), tr("CTRL+Q") );
+    pop->addCommand(tr("Quit"),this,SLOT(onQuit()), tr("CTRL+Q"), true );
 
     pop = new Gui::AutoMenu( tr("Edit"), this );
     pop->addAutoCommand( "Undo", SLOT(handleEditUndo()), tr("CTRL+Z"), true );
@@ -805,11 +791,14 @@ void LuaIde::onRun()
     bool hasErrors = false;
     foreach( const QString& path, d_pro->getFileOrder() )
     {
-        d_lua->executeCmd( QString("package.loaded[\"%1\"]=nil").arg(QFileInfo(path).baseName()).toUtf8(), "terminal" );
+        const QString module = QFileInfo(path).baseName();
+        d_lua->executeCmd( QString("package.loaded[\"%1\"]=nil").arg(module).toUtf8(), "terminal" );
         if( !d_lua->executeFile(path.toUtf8()) )
         {
             hasErrors = true;
-        }
+        }else
+            d_lua->executeCmd( QString("%1 = require '%2'").arg(module).arg(module).toUtf8(), "terminal" );
+
         if( d_lua->isAborted() )
         {
             removePosMarkers();
@@ -836,10 +825,8 @@ void LuaIde::onRun()
     //out << "jit.opt.start(\"hotloop=10\", \"hotexit=2\")" << endl;
 
     if( !main.first.isEmpty() )
-    {
-        out << "local " << main.first << " = require '" << main.first << "'" << endl;
         out << main.first << "." << main.second << "()" << endl;
-    }else if( !main.second.isEmpty() )
+    else if( !main.second.isEmpty() )
         out << main.second << "()" << endl;
     out.flush();
     if( !src.isEmpty() )
@@ -1150,6 +1137,8 @@ void LuaIde::onEnableDebug()
 
 void LuaIde::onBreak()
 {
+    if( !d_lua->isDebug() )
+        d_lua->setDebug(true);
     // normal call because called during processEvent which doesn't seem to enable
     // the functions: ENABLED_IF( d_lua->isExecuting() );
     d_lua->runToNextLine();
@@ -1286,7 +1275,7 @@ void LuaIde::addTopCommands(Gui::AutoMenu* pop)
     pop->addAutoCommand( "Show &Linenumbers", SLOT(handleShowLinenumbers()) );
     pop->addCommand( "Show Fullscreen", this, SLOT(onFullScreen()) );
     pop->addSeparator();
-    pop->addAction(tr("Quit"),qApp,SLOT(quit()) );
+    pop->addCommand(tr("Quit"),this,SLOT(onQuit()) );
 }
 
 void LuaIde::showEditor(const QString& path, int row, int col, bool setMarker , bool center)
@@ -1603,6 +1592,30 @@ static void typeAddr( QTreeWidgetItem* item, const QVariant& val )
     }
 }
 
+static void setLocalText( QTreeWidgetItem* local, const QVariant& val )
+{
+    local->setText(1, val.toString() );
+    switch( val.type() )
+    {
+    case QVariant::Double:
+        {
+            const double d = val.toDouble();
+            const int i = d;
+            if( d - double(i) == 0.0 )
+                local->setToolTip(1, QString("%1 0x%2").arg(i).arg(i,0,16));
+            else
+                local->setToolTip(1,QString::number(d, 'f', 8 ));
+        }
+        break;
+    case QVariant::Int:
+    case QVariant::UInt:
+    case QVariant::LongLong:
+    case QVariant::ULongLong:
+        local->setToolTip(1, QString("%1 0x%2").arg(val.toString()).arg(val.toLongLong(),0,16));
+        break;
+    }
+}
+
 static void fillLocalSubs( QTreeWidgetItem* super, const QVariantMap& vals )
 {
     QVariantMap::const_iterator i;
@@ -1625,7 +1638,7 @@ static void fillLocalSubs( QTreeWidgetItem* super, const QVariantMap& vals )
             item->setText(1, "\"" + i.value().toString().simplified() + "\"");
             item->setToolTip(1, i.value().toString());
         }else
-            item->setText(1,i.value().toString());
+            setLocalText(item,i.value());
     }
 }
 
@@ -1655,7 +1668,7 @@ void LuaIde::fillLocals()
                 item->setText(1, "\"" + v.d_value.toString().simplified() + "\"");
             item->setToolTip(1, v.d_value.toString() );
         }else if( !v.d_value.isNull() )
-            item->setText(1,v.d_value.toString());
+            setLocalText(item,v.d_value);
         else
         {
             switch( v.d_type )
@@ -1699,8 +1712,8 @@ void LuaIde::removePosMarkers()
 
 void LuaIde::enableDbgMenu()
 {
-    d_dbgBreak->setEnabled(!d_lua->isWaiting() && d_lua->isExecuting() && d_lua->isDebug() );
-    d_dbgAbort->setEnabled(d_lua->isWaiting());
+    d_dbgBreak->setEnabled(d_lua->isExecuting());
+    d_dbgAbort->setEnabled(d_lua->isExecuting());
     d_dbgContinue->setEnabled(d_lua->isWaiting());
     d_dbgStepIn->setEnabled(d_lua->isWaiting() && d_lua->isDebug() );
     d_dbgStepOver->setEnabled(d_lua->isWaiting() && d_lua->isDebug() );
@@ -1881,6 +1894,13 @@ void LuaIde::onSetMain()
     }
 }
 
+void LuaIde::onQuit()
+{
+    ENABLED_IF(!d_lua->isExecuting());
+
+    qApp->quit();
+}
+
 #ifndef LUAIDE_EMBEDDED
 int main(int argc, char *argv[])
 {
@@ -1888,7 +1908,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("Lua IDE");
-    a.setApplicationVersion("0.2");
+    a.setApplicationVersion("0.3");
     a.setStyle("Fusion");
 
     LuaIde w;

@@ -142,6 +142,7 @@ namespace Lua
         void onAbout();
         void onQt();
         void onSetMain();
+        void onQuit();
     private:
         class DocTab;
         class Debugger;
