@@ -88,11 +88,23 @@ static quint32 packRowCol(quint32 row, quint32 col )
     return ( row << COL_BIT_LEN ) | col | MSB;
 }
 
-static inline QString relativeToAbsolutePath( QString path )
+QString LuaIde::relativeToAbsolutePath( QString path )
 {
     QFileInfo info(path);
     if( info.isRelative() )
-        path = QDir::cleanPath(QDir::current().absoluteFilePath(path));
+    {
+        if( !path.endsWith(".lua") )
+        {
+            Project::FileHash::const_iterator i = d_pro->getFiles().begin();
+            while( i != d_pro->getFiles().end() )
+            {
+                if( QFileInfo(i.key()).baseName() == path )
+                    return i.key();
+                ++i;
+            }
+        }else
+            path = QDir::cleanPath(QDir::current().absoluteFilePath(path));
+    }
     return path;
 }
 
@@ -384,6 +396,9 @@ LuaIde::LuaIde(Engine2* lua, QWidget *parent)
     lua_pushcfunction( d_lua->getCtx(), Engine2::TRACE );
     lua_setglobal( d_lua->getCtx(), "TRACE" );
     d_pro->addBuiltIn("TRACE");
+    lua_pushcfunction( d_lua->getCtx(), Engine2::ABORT );
+    lua_setglobal( d_lua->getCtx(), "ABORT" );
+    d_pro->addBuiltIn("ABORT");
 
     d_dbg = new Debugger(this);
     d_lua->setDbgShell(d_dbg);
@@ -505,6 +520,11 @@ void LuaIde::loadFile(const QString& path)
 void LuaIde::logMessage(const QString& str, bool err)
 {
     d_term->printText(str,err);
+}
+
+void LuaIde::setSpecialInterpreter(bool on)
+{
+    d_term->setSpecialInterpreter(on);
 }
 
 void LuaIde::closeEvent(QCloseEvent* event)
@@ -791,12 +811,14 @@ void LuaIde::onRun()
     bool hasErrors = false;
     foreach( const QString& path, d_pro->getFileOrder() )
     {
+        if( path.startsWith(":/") )
+            continue;
         const QString module = QFileInfo(path).baseName();
         d_lua->executeCmd( QString("package.loaded[\"%1\"]=nil").arg(module).toUtf8(), "terminal" );
         if( !d_lua->executeFile(path.toUtf8()) )
         {
             hasErrors = true;
-        }else
+        }else if( d_pro->useRequire())
             d_lua->executeCmd( QString("%1 = require '%2'").arg(module).arg(module).toUtf8(), "terminal" );
 
         if( d_lua->isAborted() )
@@ -1253,15 +1275,18 @@ void LuaIde::fillMods()
     d_mods->clear();
     foreach( const QString& path, d_pro->getFileOrder() )
     {
-        QTreeWidgetItem* item = new QTreeWidgetItem(d_mods);
-        item->setText(0, QFileInfo(path).baseName());
-        item->setToolTip(0,path);
         Module* m = d_pro->getFiles().value(path);
         Q_ASSERT( m != 0 );
         ScopeRef s(m->getTopChunk());
+        if( s.isNull() )
+            continue;
+        QTreeWidgetItem* item = new QTreeWidgetItem(d_mods);
+        item->setText(0, QFileInfo(path).baseName());
+        item->setToolTip(0,path);
         item->setData(0,Qt::UserRole,QVariant::fromValue(s) );
         fillScope( item, m, s.data() );
     }
+    d_mods->sortByColumn(0,Qt::AscendingOrder);
 }
 
 void LuaIde::addTopCommands(Gui::AutoMenu* pop)
@@ -1405,14 +1430,26 @@ bool LuaIde::luaRuntimeMessage(const QByteArray& msg, const QString& file )
     }
     // /home/me/Smalltalk/Interpreter.lua:37: module 'ObjectMemory' not found: no field
     QRegExp reg(":[0-9]+:");
-    const int lineNr = reg.indexIn(msg);
-    if( lineNr != -1 )
+    const int pos1 = reg.indexIn(msg);
+    if( pos1 != -1 )
     {
-        const QString path = relativeToAbsolutePath(msg.left(lineNr));
+        const QString path = relativeToAbsolutePath(msg.left(pos1));
         const QString cap = reg.cap();
-        d_pro->getErrs()->error(Ljas::Errors::Runtime, path.isEmpty() ? file : path,
+        const int pos2 = reg.indexIn(msg, pos1 + 1 );
+        if( pos2 != -1 )
+        {
+            // resent error from pcall return
+            const QString path2 = relativeToAbsolutePath(msg.mid(pos1+cap.size(),pos2-pos1-cap.size()).trimmed());
+            const QString cap2 = reg.cap();
+            d_pro->getErrs()->error(Ljas::Errors::Runtime, path2.isEmpty() ? file : path2,
+                                cap2.mid(1,cap2.size()-2).toInt(), 1,
+                                msg.mid(pos2+reg.matchedLength()).trimmed() );
+            d_pro->getErrs()->error(Ljas::Errors::Runtime, path.isEmpty() ? file : path,
+                                cap.mid(1,cap.size()-2).toInt(), 1, "rethrown error" );
+        }else
+            d_pro->getErrs()->error(Ljas::Errors::Runtime, path.isEmpty() ? file : path,
                                 cap.mid(1,cap.size()-2).toInt(), 1,
-                                msg.mid(lineNr+reg.matchedLength()).trimmed() );
+                                msg.mid(pos1+reg.matchedLength()).trimmed() );
         return true;
     }
     d_pro->getErrs()->error(Ljas::Errors::Runtime, file, 0, 0, msg );

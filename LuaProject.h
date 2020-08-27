@@ -51,6 +51,7 @@ namespace Lua
         bool save();
         bool saveTo(const QString& filePath );
         bool initializeFromDir( const QDir&, bool recursive = false );
+        bool initializeFromFiles( const QStringList&, const QByteArray& run = QByteArray(), bool useRequire = true );
         void setSuffixes( const QStringList& ); // Form: ".suffix"
         const QStringList& getSuffixes() const { return d_suffixes; }
         void setMain( const ModProc& );
@@ -66,6 +67,7 @@ namespace Lua
         QString getWorkingDir(bool resolved = false) const;
         void setWorkingDir( const QString& );
         void addBuiltIn( const QByteArray& name ) { d_addBuiltIns.append(name); }
+        bool useRequire() const { return d_useRequire; }
 
         Ljas::Errors* getErrs() const { return d_err; }
         Ljas::FileCache* getFc() const { return d_fcache; }
@@ -89,6 +91,7 @@ namespace Lua
         Module::Ref<Module::Global> d_global;
         QByteArrayList d_addBuiltIns;
         bool d_dirty;
+        bool d_useRequire;
     };
 }
 

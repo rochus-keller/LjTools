@@ -829,6 +829,13 @@ int Engine2::TRACE(lua_State* L)
     return 0;
 }
 
+int Engine2::ABORT(lua_State* L)
+{
+    Engine2* e = Engine2::getInst();
+    e->terminate(true);
+    return 0;
+}
+
 void Engine2::terminate(bool silent)
 {
     if( !isDebug() )
@@ -935,8 +942,6 @@ Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool wit
     l.d_what = ar->namewhat;
     l.d_name = ( ar->name ? ar->name : "" );
     l.d_source = *ar->source == '@' ? ar->source + 1 : ar->source;
-    if( QFileInfo(l.d_source).isRelative() )
-        l.d_source = QDir::cleanPath(QDir::current().absoluteFilePath(l.d_source)).toUtf8();
     l.d_inC = *(what) == 'C';
 
     if( withValidLines )

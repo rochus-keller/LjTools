@@ -28,7 +28,7 @@
 #include <QCoreApplication>
 using namespace Lua;
 
-Project::Project(QObject *parent) : QObject(parent),d_dirty(false)
+Project::Project(QObject *parent) : QObject(parent),d_dirty(false),d_useRequire(true)
 {
     d_err = new Ljas::Errors(this);
     d_err->setRecord(true);
@@ -73,6 +73,27 @@ bool Project::initializeFromDir(const QDir& dir, bool recursive)
         d_files.insert(f,m);
         d_fileOrder.append(f);
     }
+    emit sigModified(d_dirty);
+    emit sigRenamed();
+    return true;
+}
+
+bool Project::initializeFromFiles(const QStringList& files, const QByteArray& run, bool useRequire)
+{
+    clear();
+    d_dirty = false;
+    d_useRequire = useRequire;
+    d_main = qMakePair(QByteArray(),run);
+
+    foreach( const QString& f, files )
+    {
+        Module* m = new Module(this);
+        m->setCache(d_fcache);
+        m->setErrors(d_err);
+        d_files.insert(f,m);
+        d_fileOrder.append(f);
+    }
+    emit sigModified(d_dirty);
     emit sigRenamed();
     return true;
 }

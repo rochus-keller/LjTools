@@ -44,7 +44,7 @@ static QTextCharFormat s_outf;
 static const char* s_prompt = "Lua> ";
 
 Terminal2::Terminal2(QWidget* parent, Lua::Engine2* l):
-	QTextEdit( parent ), d_lua( l )
+    QTextEdit( parent ), d_lua( l ), d_specialInterpreter(true)
 {
 	if( d_lua == 0 )
 		d_lua = Lua::Engine2::getInst();
@@ -118,7 +118,7 @@ void Terminal2::keyPressEvent(QKeyEvent *e)
 			if( !d_line.isEmpty() )
 				d_histo.append( d_line );
 			d_next.clear();
-            if( d_lua->isWaiting() )
+            if( d_specialInterpreter && d_lua->isWaiting() )
             {
                 ExpressionParser p;
                 if( p.parseAndPrint( d_line.toLatin1(), d_lua, false ) )
@@ -205,7 +205,7 @@ void Terminal2::inputMethodEvent(QInputMethodEvent * e)
 
 QString Terminal2::prompt() const
 {
-	if( d_lua->isWaiting() )
+    if( d_specialInterpreter && d_lua->isWaiting() )
         return "Exp>";
     else
 		return s_prompt;

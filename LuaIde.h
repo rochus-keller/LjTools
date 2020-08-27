@@ -60,6 +60,8 @@ namespace Lua
         void loadFile( const QString& path );
         void logMessage(const QString& , bool err = false);
         Project* getProject() const { return d_pro; }
+        void setSpecialInterpreter(bool);
+        bool compile(bool generate = false);
 
     protected:
         class Editor;
@@ -74,7 +76,6 @@ namespace Lua
         void createMenuBar();
         void closeEvent(QCloseEvent* event);
         bool checkSaved( const QString& title );
-        bool compile(bool generate = false);
         void fillMods();
         void showDocument( const QString& filePath );
         void addTopCommands(Gui::AutoMenu * pop);
@@ -99,6 +100,7 @@ namespace Lua
             Location(const QString& f, int l, int c ):d_file(f),d_line(l),d_col(c){}
         };
         void pushLocation( const Location& );
+        QString relativeToAbsolutePath( QString path );
 
     protected slots:
         void onCompile();

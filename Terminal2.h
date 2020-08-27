@@ -34,6 +34,7 @@ namespace Lua
 	public:
 		void paste();
 		void clear();
+        bool setSpecialInterpreter(bool on) { d_specialInterpreter = on; }
 		Terminal2(QWidget*, Engine2 * = 0);
         virtual ~Terminal2();
     public slots:
@@ -46,6 +47,7 @@ namespace Lua
 		QStringList d_histo;
 		QStringList d_next;
         QByteArray d_stdout, d_stderr;
+        bool d_specialInterpreter;
 	protected:
 		void keyPressEvent ( QKeyEvent * e );
         void inputMethodEvent(QInputMethodEvent *);
