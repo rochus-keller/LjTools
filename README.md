@@ -35,6 +35,13 @@ Here is an Asm Editor screenshot:
 
 ![Lua IDE Screenshot](http://software.rochus-keller.info/screenshot_luaide_0.1.png)
 
+### LuaJIT bytecode debugger
+
+The bytecode debugger supports single step debugging of LuaJIT bytecode. It can do step-in, step-over and step-out, as well as stop at configurable breakpoints. All features are accessible by GUI. The debugger is embeddable to other applications, currently by SomLjVirtualMachine (see https://github.com/rochus-keller/som/). The debugger depends on commit ccc257a of https://github.com/rochus-keller/LuaJIT/tree/LjTools for the required bytecode program counter resolution. With each break or step the local variables including unnamed temporary registers are displayed as well as the stack trace. You can double-click on the stack levels to change to the corresponding local variable set.
+
+![LuaJIT Bytecode Debugger Screenshot](http://software.rochus-keller.info/screenshot_luajit_bytecode_debugger_v0.1.png)
+
+
 ### Binary Versions
 
 Here is a precompiled version of LjAsmEditor for Linux i386: http://software.rochus-keller.info/LjAsmEditor_linux32.tar.gz

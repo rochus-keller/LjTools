@@ -19,6 +19,7 @@
 
 #include "LjDisasm.h"
 #include "LuaJitBytecode.h"
+#include "LuaJitComposer.h"
 #include <QtDebug>
 #include <QSet>
 #include <QTextStream>
@@ -414,7 +415,11 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
     }
     out << ") ";
     if( !f->isStripped() )
-        out << "\t-- lines "<< f->d_firstline << " to " << f->d_firstline + f->d_numline;
+    {
+        out << "\t-- lines ";
+        out << JitComposer::unpackRow2(f->d_firstline) << " to " <<
+                   JitComposer::unpackRow2(f->lastLine() );
+    }
     out << endl;
 
 #if 0
@@ -591,7 +596,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
                 labels.insert( pc + 1 + bc.getCd() );
         }
 
-        int lastLine = 0;
+        quint32 lastLine = 0;
         for( int pc = 0; pc < f->d_byteCodes.size(); pc++ )
         {
             QByteArray warning;
@@ -632,7 +637,11 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
                 if( lastLine != f->d_lines[pc] )
                 {
                     lastLine = f->d_lines[pc];
-                    out << "\t\t-- " << lastLine;
+                    out << "\t\t-- ";
+                    if( JitComposer::isPacked(lastLine) )
+                        out << JitComposer::unpackRow(lastLine) << ":" << JitComposer::unpackCol(lastLine);
+                    else
+                        out << lastLine;
                 }
             }
 

@@ -57,8 +57,8 @@ namespace Lua
             quint8 d_numparams;
             quint8 d_framesize;
             bool d_isRoot;
-            quint32 d_firstline;
-            quint32 d_numline;
+            quint32 d_firstline; // may be packed or unpacked
+            quint32 d_numline; // always the diff of last - first + 1, even if packed!
             CodeList d_byteCodes;
             UpvalList d_upvals;
             VariantList d_constObjs;
@@ -85,6 +85,7 @@ namespace Lua
             bool isLocalUpval( int i ) const { return d_upvals[i] & UvLocalMask; }
             bool isImmutableUpval( int i ) const  { return d_upvals[i] & UvImmutableMask; }
             QPair<quint8,Function*> getFuncSlotFromUpval(quint8) const;
+            quint32 lastLine() const { return d_firstline + d_numline - 1; } // returns packed
         };
         typedef QExplicitlySharedDataPointer<Function> FuncRef;
 
@@ -167,6 +168,7 @@ namespace Lua
         static bool isPrimitive( const QVariant& );
         static quint8 toPrimitive( const QVariant& );
         static const char* nameOfOp(int op );
+        static QString checkFileHeader( const QByteArray& );
     protected:
         bool parseHeader(QIODevice* );
         bool writeHeader(QIODevice* );

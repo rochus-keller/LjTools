@@ -1358,7 +1358,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
     // prepare slot pool and enter all params (which are fix allocated)
     JitComposer::SlotPool pool;
     for( int i = 0; i < me->d_params.size(); i++ )
-        pool.set(i);
+        pool.d_slots.set(i);
 
     // collect all pending registers which are part of an array
     QSet<Var*> arrays;
@@ -1370,7 +1370,7 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         if( v && !v->isUnused() )
             all << v;
         if( v && v->d_n == 1 && !v->isUnused() && !v->isFixed() && v->d_slotPreset )
-            pool.set( v->d_slot );
+            pool.d_slots.set( v->d_slot );
 
         if( v && v->d_n > 1 && !v->isUnused() && !v->isFixed() )
         {
@@ -1514,9 +1514,9 @@ bool Assembler::allocateRegisters3(Assembler::Func* me)
         }
     }
     int frameSize;
-    for( frameSize = pool.size() - 1; frameSize >= 0; frameSize-- )
+    for( frameSize = pool.d_slots.size() - 1; frameSize >= 0; frameSize-- )
     {
-        if( pool.test(frameSize) )
+        if( pool.d_slots.test(frameSize) )
             break;
     }
     frameSize++;

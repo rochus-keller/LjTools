@@ -39,7 +39,7 @@ namespace Lua
         AsmEditor(QWidget *parent = 0);
         ~AsmEditor();
 
-        void loadFile( const QString& path );
+        void loadFile(const QString& path , bool stripped = false);
         void logMessage(const QString& , bool err = false);
 
     protected:

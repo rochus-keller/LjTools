@@ -71,8 +71,7 @@ int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, quin
         }
 
         f->d_firstline = firstLine;
-        f->d_numline = lastLine - firstLine + 1;
-        // intentionally not unpack so that the larger numline determines larger word length
+        f->d_numline = lastLine - firstLine + 1; // NOTE: intentionally not unpack so that the larger numline determines larger word length
     }else
     {
         f->d_firstline = 0;
@@ -85,8 +84,18 @@ int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, quin
     return slot;
 }
 
+static inline bool isRET( quint8 op )
+{
+    return op == JitBytecode::OP_RETM ||
+            op == JitBytecode::OP_RET ||
+            op == JitBytecode::OP_RET0 ||
+            op == JitBytecode::OP_RET1 ||
+            op == JitBytecode::OP_CALLT;
+}
+
 bool JitComposer::closeFunction(quint8 frameSize)
 {
+    Q_ASSERT( !d_bc.d_fstack.isEmpty() );
     Func* f = static_cast<Func*>(d_bc.d_fstack.back().data());
     f->d_framesize = frameSize;
 
@@ -98,8 +107,13 @@ bool JitComposer::closeFunction(quint8 frameSize)
     for( n = f->d_gcConst.begin(); n != f->d_gcConst.end(); ++n )
         f->d_constObjs[ f->d_gcConst.size() - n.value() - 1] = n.key(); // reverse
 
+    const bool hasReturn = !d_bc.d_fstack.back()->d_byteCodes.isEmpty() &&
+            isRET(JitBytecode::opFromBc(d_bc.d_fstack.back()->d_byteCodes.last()));
+    if( !hasReturn )
+        qWarning() << "JitComposer::closeFunction: last statement is neither RET nor CALLT in" <<
+                      d_bc.d_name << "function no." << d_bc.d_fstack.back()->d_id;
     d_bc.d_fstack.pop_back();
-    return true;
+    return hasReturn;
 }
 
 bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, quint32 line)
@@ -657,11 +671,11 @@ static bool sortIntervals( const JitComposer::Interval& lhs, const JitComposer::
 
 static int checkFree( const JitComposer::SlotPool& pool, int slot, int len )
 {
-    if( slot + len >= pool.size() )
+    if( slot + len >= pool.d_slots.size() )
         return 0;
     for( int i = 0; i < len ; i++ )
     {
-        if( pool.test(slot+i) )
+        if( pool.d_slots.test(slot+i) )
             return i;
     }
     return len;
@@ -671,31 +685,58 @@ static inline void fill( JitComposer::SlotPool& pool, bool val, int from, int to
 {
     // Sets bits at index positions begin up to (but not including) end to value.
     for( int i = from; i < to; i++ )
-        pool.set(i,val);
+        pool.d_slots.set(i,val);
 }
 
-int JitComposer::nextFreeSlot(SlotPool& pool, int len, int startFrom )
+static inline void setFrameSize(JitComposer::SlotPool& pool, int slot, int len )
+{
+    if( slot < 0 )
+        return;
+    const int max = slot + len;
+    if( max > int(pool.d_frameSize) )
+        pool.d_frameSize = max;
+}
+
+static inline void setCallArgs(JitComposer::SlotPool& pool, int slot, bool callArgs )
+{
+    // in case of a call take care that slots used to evaluate the arguments are higher than
+    // the allocated call base; otherwise it could happen that an argument executes yet another
+    // call to which a base lower than the waiting one is allocated resulting in random modifications
+    // of the waiting call base;
+    // we need a stack (and not simply a scalar) because calls can be nested when the arguments
+    // of call A must be calculated by call B, so the stack contains slot(A) and slots(B)
+
+    if( slot < 0 || !callArgs )
+        return;
+    pool.d_callArgs.push_back(slot);
+}
+
+int JitComposer::nextFreeSlot(SlotPool& pool, int len, bool callArgs )
 {
     int slot = 0;
-    if( startFrom >= 0 )
-        slot = startFrom;
+    if( !pool.d_callArgs.isEmpty() )
+        slot = pool.d_callArgs.back();
     while( true )
     {
         // skip used
-        while( slot < pool.size() && pool.test(slot) )
+        while( slot < pool.d_slots.size() && pool.d_slots.test(slot) )
             slot++;
-        if( slot < pool.size() )
+        if( slot < pool.d_slots.size() )
         {
-            Q_ASSERT( !pool.test(slot) );
+            Q_ASSERT( !pool.d_slots.test(slot) );
             if( len == 1 )
             {
-                pool.set(slot);
+                pool.d_slots.set(slot);
+                setFrameSize(pool,slot,len);
+                setCallArgs(pool,slot,callArgs);
                 return slot;
             } // else
             const int free = checkFree( pool, slot, len );
             if( free == len )
             {
                 fill(pool,true,slot,slot+len);
+                setFrameSize(pool,slot,len);
+                setCallArgs(pool,slot,callArgs);
                 return slot;
             } // else
             slot += free;
@@ -708,17 +749,18 @@ bool JitComposer::releaseSlot(JitComposer::SlotPool& pool, quint8 slot, int len)
 {
     for( int i = slot; i < slot + len; i++ )
     {
-        if( !pool.test(i) )
+        if( !pool.d_slots.test(i) )
             return false;
-        pool.set(i,false);
+        pool.d_slots.set(i,false);
     }
+    pool.d_callArgs.removeOne(slot);
     return true;
 }
 
 int JitComposer::highestUsedSlot(const JitComposer::SlotPool& pool)
 {
-    for( int i = pool.size() - 1; i >= 0; i-- )
-        if( pool.test(i) )
+    for( int i = pool.d_slots.size() - 1; i >= 0; i-- )
+        if( pool.d_slots.test(i) )
             return i;
     return -1;
 }
@@ -750,11 +792,11 @@ bool JitComposer::allocateWithLinearScan(SlotPool& pool, JitComposer::Intervals&
             {
                 break;
             }
-            pool.set(vars[j.value()].d_slot,false);
+            pool.d_slots.set(vars[j.value()].d_slot,false); // why not releaseSlot?
             fill(pool,false, vars[j.value()].d_slot, vars[j.value()].d_slot + len );
             j = active.erase(j);
         }
-        int slot = nextFreeSlot(pool,len);
+        const int slot = nextFreeSlot(pool,len);
         if( active.size() >= MAX_SLOTS || slot < 0 )
             return false;
         vars[i].d_slot = slot;

@@ -296,27 +296,66 @@ AsmEditor::~AsmEditor()
 
 }
 
-void AsmEditor::loadFile(const QString& path)
+void AsmEditor::loadFile(const QString& path, bool stripped )
 {
-    if( path.endsWith(".ljasm",Qt::CaseInsensitive ) )
-        d_edit->loadFromFile(path);
-    else
-    {
-        Lua::JitBytecode bc;
-        bc.parse(path);
-
-        QBuffer buf;
-        buf.open(QIODevice::WriteOnly);
-        Ljas::Disasm::disassemble( bc, &buf, path, d_importStrip, d_importAlloc );
-        buf.close();
-        d_edit->setPlainText(buf.buffer());
-
-    }
     QDir::setCurrent(QFileInfo(path).absolutePath());
+    if( path.endsWith(".ljasm",Qt::CaseInsensitive ) )
+    {
+        d_edit->loadFromFile(path);
+        onParse();
+    }else
+    {
+        QFile in( path );
+        if( !in.open(QIODevice::ReadOnly) )
+        {
+            QMessageBox::critical(this,tr("Import from Lua"), tr("cannot open file for reading") );
+            return;
+        }
+        const QString err = JitBytecode::checkFileHeader(in.read(4));
+
+        in.reset();
+        if( err.isEmpty() )
+        {
+            // LuaJIT 2.0 bytecode file
+
+            Lua::JitBytecode bc;
+            if( !bc.parse(path) )
+            {
+                QMessageBox::critical(this,tr("Import from Lua"), tr("selected bytecode file has errors") );
+                return;
+            }
+
+            QBuffer buf;
+            buf.open(QIODevice::WriteOnly);
+            Ljas::Disasm::disassemble( bc, &buf, path, d_importStrip, d_importAlloc );
+            buf.close();
+            d_edit->setPlainText(buf.buffer());
+
+            in.reset();
+            d_bcv->loadFrom(&in,path);
+        }else
+        {
+            // Lua source file
+            QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
+            const QString temp = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
+            if( !d_lua->saveBinary( in.readAll(), path.toUtf8(),temp.toUtf8() ) )
+            {
+                QMessageBox::critical(this,tr("Import from Lua"), tr("selected source file has errors") );
+                return;
+            }
+            Lua::JitBytecode bc;
+            bc.parse(temp);
+            dir.remove(temp);
+
+            QBuffer buf;
+            buf.open(QIODevice::WriteOnly);
+            Ljas::Disasm::disassemble( bc, &buf, path, stripped, d_importAlloc );
+            buf.close();
+            d_edit->setPlainText(buf.buffer());
+            onParse();
+        }
+    }
     onCaption();
-
-    onParse();
-
 }
 
 void AsmEditor::logMessage(const QString& str, bool err)
@@ -468,11 +507,7 @@ void AsmEditor::onOpen()
     if (fileName.isEmpty())
         return;
 
-    QDir::setCurrent(QFileInfo(fileName).absolutePath());
-
-    d_edit->loadFromFile(fileName);
-    onParse();
-    onCaption();
+    loadFile(fileName);
 }
 
 void AsmEditor::onSave()
@@ -728,31 +763,8 @@ void AsmEditor::import(bool stripped)
     if (fileName.isEmpty())
         return;
 
-    QDir::setCurrent(QFileInfo(fileName).absolutePath());
+    loadFile(fileName, stripped);
 
-    QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
-    const QString path = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
-    QFile in(fileName);
-    if( !in.open(QIODevice::ReadOnly) )
-    {
-        QMessageBox::critical(this,tr("Import from Lua"), tr("cannot open file for reading") );
-        return;
-    }
-    if( !d_lua->saveBinary( in.readAll(), fileName.toUtf8(),path.toUtf8() ) )
-    {
-        QMessageBox::critical(this,tr("Import from Lua"), tr("selected file has errors") );
-        return;
-    }
-    Lua::JitBytecode bc;
-    bc.parse(path);
-    dir.remove(path);
-
-    QBuffer buf;
-    buf.open(QIODevice::WriteOnly);
-    Ljas::Disasm::disassemble( bc, &buf, fileName, stripped, d_importAlloc );
-    buf.close();
-    d_edit->setPlainText(buf.buffer());
-    onParse();
 }
 
 int main(int argc, char *argv[])
@@ -761,7 +773,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjAsmEditor");
-    a.setApplicationVersion("0.5.3");
+    a.setApplicationVersion("0.5.4");
     a.setStyle("Fusion");
 
     Lua::AsmEditor w;

@@ -58,7 +58,13 @@ namespace Lua
             Interval(quint32 from, quint32 to, void* pl):d_from(from),d_to(to),d_payload(pl),d_slot(0){}
         };
         typedef QList<Interval> Intervals;
-        typedef std::bitset<MAX_SLOTS> SlotPool;
+        struct SlotPool
+        {
+            std::bitset<MAX_SLOTS> d_slots;
+            QList<quint8> d_callArgs; // stack
+            quint8 d_frameSize; // max used slot
+            SlotPool():d_frameSize(0){}
+        };
         typedef quint8 SlotNr;
         typedef quint8 UvNr;
         typedef qint16 Jump;
@@ -73,7 +79,8 @@ namespace Lua
         bool addAbc( JitBytecode::Op, quint8 a, quint8 b, quint8 c, quint32 line = 0 );
         bool addAd(JitBytecode::Op, quint8 a, quint16 d, quint32 line = 0 );
         int getCurPc() const;
-        bool patch( quint32 pc, qint16 off );
+        bool patch( quint32 pc, qint16 off ); // pc points to a jump, off is the new offset for the jump
+        bool patch( quint32 label ) { return patch( label, getCurPc() - label ); }
 
         bool ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line = 0 );
         bool ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line = 0 );
@@ -128,11 +135,15 @@ namespace Lua
         bool TSET(SlotNr value, SlotNr table, quint8 index, quint32 line = 0 ); // index is a slot
         bool TSETi(SlotNr value, SlotNr table, quint8 index, quint32 line = 0 ); // index is a number
         bool TSET(SlotNr value, SlotNr table, const QByteArray&  index, quint32 line = 0 );
-        bool UCLO(SlotNr slot, Jump offset, quint32 line = 0 );
+        bool UCLO(SlotNr slot, Jump offset, quint32 line = 0 ); // see note**
         bool UGET(SlotNr toSlot, UvNr fromUv, quint32 line = 0 );
         bool USET(UvNr toUv, SlotNr rhs, quint32 line = 0 );
         bool USET(UvNr toUv, const QVariant& rhs, quint32 line = 0 );
         bool UNM(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
+
+        // **NOTE: UCLO must be emitted whenever a body is left the locals of which are accessed as
+        // upvalues; slot was always 0 so far where observed from the LJ compiler; bodies which access
+        // upvalues or which are between those and the upvalue source don't emit UCLO.
 
         void setUpvals( const UpvalList& );
         void setVarNames( const VarNameList& );
@@ -146,7 +157,7 @@ namespace Lua
         void setUseRowColFormat(bool);
 
         static bool allocateWithLinearScan(SlotPool& pool, Intervals& vars, int len = 1 );
-        static int nextFreeSlot(SlotPool& pool, int len = 1 , int startFrom = -1);
+        static int nextFreeSlot(SlotPool& pool, int len = 1 , bool callArgs = false);
         static bool releaseSlot( SlotPool& pool, quint8 slot, int len = 1 );
         static int highestUsedSlot( const SlotPool& pool );
 

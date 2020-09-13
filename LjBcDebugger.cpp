@@ -17,7 +17,7 @@
 * http://www.gnu.org/copyleft/gpl.html.
 */
 
-#include "LuaIde.h"
+#include "LjBcDebugger.h"
 #include "LuaHighlighter.h"
 #include "LuaProject.h"
 #include "LjasFileCache.h"
@@ -27,6 +27,7 @@
 #include <LjTools/BcViewer2.h>
 #include <LjTools/BcViewer.h>
 #include <LjTools/LuaJitEngine.h>
+#include <LjTools/LuaJitComposer.h>
 #include <lua.hpp>
 #include <QtDebug>
 #include <QDockWidget>
@@ -49,6 +50,7 @@
 #include <GuiTools/CodeEditor.h>
 #include <GuiTools/AutoShortcut.h>
 #include <GuiTools/DocTabWidget.h>
+#include <math.h>
 using namespace Lua;
 
 #ifdef Q_OS_MAC
@@ -79,28 +81,19 @@ using namespace Lua;
 #define OBN_PREVDOC_SC "CTRL+SHIFT+TAB"
 #endif
 
-enum { ROW_BIT_LEN = 19, COL_BIT_LEN = 32 - ROW_BIT_LEN - 1, MSB = 0x80000000 };
-static quint32 packRowCol(quint32 row, quint32 col )
-{
-    static const quint32 maxRow = ( 1 << ROW_BIT_LEN ) - 1;
-    static const quint32 maxCol = ( 1 << COL_BIT_LEN ) - 1;
-    Q_ASSERT( row <= maxRow && col <= maxCol );
-    return ( row << COL_BIT_LEN ) | col | MSB;
-}
+// derived from LuaIDE
 
-QString LuaIde::relativeToAbsolutePath( QString path )
+QString BcDebugger::relativeToAbsolutePath( QString path )
 {
     QFileInfo info(path);
     if( info.isRelative() )
     {
         if( !path.endsWith(".lua") )
         {
-            Project::FileHash::const_iterator i = d_pro->getFiles().begin();
-            while( i != d_pro->getFiles().end() )
+            foreach( const SourceBinaryPair& f, d_files )
             {
-                if( QFileInfo(i.key()).baseName() == path )
-                    return i.key();
-                ++i;
+                if( QFileInfo(f.second).baseName() == path )
+                    return f.second;
             }
         }else
             path = QDir::cleanPath(QDir::current().absoluteFilePath(path));
@@ -108,208 +101,11 @@ QString LuaIde::relativeToAbsolutePath( QString path )
     return path;
 }
 
-struct ScopeRef : public Module::Ref<Module::Scope>
-{
-    ScopeRef(Module::Scope* s = 0):Ref(s) {}
-};
-Q_DECLARE_METATYPE(ScopeRef)
-struct ThingRef : public Module::Ref<Module::Thing>
-{
-    ThingRef(Module::Thing* n = 0):Ref(n) {}
-};
-Q_DECLARE_METATYPE(ThingRef)
-
-class LuaIde::Editor : public CodeEditor
+class BcDebugger::Debugger : public DbgShell
 {
 public:
-    Editor(LuaIde* p, Project* pro):CodeEditor(p),d_pro(pro),d_ide(p)
-    {
-        setCharPerTab(4);
-        setTypingLatency(400);
-        setPaintIndents(false);
-        d_hl = new Highlighter( document() );
-        updateTabWidth();
-    }
-
-    ~Editor()
-    {
-    }
-
-    LuaIde* d_ide;
-    Highlighter* d_hl;
-    Project* d_pro;
-
-    void clearBackHisto()
-    {
-        d_backHisto.clear();
-    }
-
-
-    typedef QList<ThingRef> ExList;
-
-    void markNonTerms(const ExList& syms)
-    {
-        d_nonTerms.clear();
-        QTextCharFormat format;
-        format.setBackground( QColor(237,235,243) );
-        foreach( const Module::Ref<Module::Thing>& s, syms )
-        {
-            QTextCursor c( document()->findBlockByNumber( s->d_tok.d_lineNr - 1) );
-            c.setPosition( c.position() + qMax(s->d_tok.d_colNr - 1,0) );
-            int pos = c.position();
-            c.setPosition( pos + s->d_tok.d_val.size(), QTextCursor::KeepAnchor );
-
-            QTextEdit::ExtraSelection sel;
-            sel.format = format;
-            sel.cursor = c;
-
-            d_nonTerms << sel;
-        }
-        updateExtraSelections();
-    }
-
-    void updateExtraSelections()
-    {
-        ESL sum;
-
-        QTextEdit::ExtraSelection line;
-        line.format.setBackground(QColor(Qt::yellow).lighter(170));
-        line.format.setProperty(QTextFormat::FullWidthSelection, true);
-        line.cursor = textCursor();
-        line.cursor.clearSelection();
-        sum << line;
-
-        sum << d_nonTerms;
-
-        if( !d_pro->getErrs()->getErrors().isEmpty() )
-        {
-            QTextCharFormat errorFormat;
-            errorFormat.setUnderlineStyle(QTextCharFormat::WaveUnderline);
-            errorFormat.setUnderlineColor(Qt::magenta);
-            Ljas::Errors::EntryList l = d_pro->getErrs()->getErrors(getPath());
-            for( int i = 0; i < l.size(); i++ )
-            {
-                QTextCursor c( document()->findBlockByNumber(l[i].d_line - 1) );
-
-                c.setPosition( c.position() + qMax(l[i].d_col - 1,0) );
-                c.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
-
-                QTextEdit::ExtraSelection sel;
-                sel.format = errorFormat;
-                sel.cursor = c;
-                sel.format.setToolTip(l[i].d_msg);
-
-                sum << sel;
-            }
-        }
-
-        sum << d_link;
-
-        setExtraSelections(sum);
-    }
-
-    void mousePressEvent(QMouseEvent* e)
-    {
-        if( !d_link.isEmpty() )
-        {
-            QTextCursor cur = cursorForPosition(e->pos());
-            d_ide->pushLocation( LuaIde::Location( getPath(), cur.blockNumber(), cur.positionInBlock() ) );
-            QApplication::restoreOverrideCursor();
-            d_link.clear();
-        }
-        if( QApplication::keyboardModifiers() == Qt::ControlModifier )
-        {
-            QTextCursor cur = cursorForPosition(e->pos());
-            Module::Ref<Module::Thing> e = d_pro->findSymbolBySourcePos(
-                        getPath(),cur.blockNumber() + 1,cur.positionInBlock() + 1);
-            if( e && e->getTag() == Module::Thing::T_SymbolUse )
-            {
-                Module::Thing* sym = static_cast<Module::SymbolUse*>(e.data())->d_sym;
-                d_ide->pushLocation( LuaIde::Location( getPath(), cur.blockNumber(), cur.positionInBlock() ) );
-                d_ide->showEditor( sym, false, false );
-                //setCursorPosition( sym->d_loc.d_row - 1, sym->d_loc.d_col - 1, true );
-            }
-            updateExtraSelections();
-        }else
-            QPlainTextEdit::mousePressEvent(e);
-    }
-
-    void mouseMoveEvent(QMouseEvent* e)
-    {
-        QPlainTextEdit::mouseMoveEvent(e);
-        if( QApplication::keyboardModifiers() == Qt::ControlModifier )
-        {
-            QTextCursor cur = cursorForPosition(e->pos());
-            Module::Ref<Module::Thing> thing = d_pro->findSymbolBySourcePos(
-                        getPath(),cur.blockNumber() + 1,cur.positionInBlock() + 1);
-            const bool alreadyArrow = !d_link.isEmpty();
-            d_link.clear();
-            if( thing )
-            {
-                Module::Thing* sym = thing.data();
-                const int off = cur.positionInBlock() + 1 - thing->d_tok.d_colNr;
-                cur.setPosition(cur.position() - off);
-                cur.setPosition( cur.position() + sym->d_tok.d_val.size(), QTextCursor::KeepAnchor );
-
-                QTextEdit::ExtraSelection sel;
-                sel.cursor = cur;
-                sel.format.setFontUnderline(true);
-                d_link << sel;
-                /*
-                d_linkLineNr = sym->d_loc.d_row - 1;
-                d_linkColNr = sym->d_loc.d_col - 1;
-                */
-                if( !alreadyArrow )
-                    QApplication::setOverrideCursor(Qt::ArrowCursor);
-            }
-            if( alreadyArrow && d_link.isEmpty() )
-                QApplication::restoreOverrideCursor();
-            updateExtraSelections();
-        }else if( !d_link.isEmpty() )
-        {
-            QApplication::restoreOverrideCursor();
-            d_link.clear();
-            updateExtraSelections();
-        }
-    }
-
-    void onUpdateModel()
-    {
-        d_ide->compile();
-        if( !d_nonTerms.isEmpty() && !d_pro->getErrs()->getErrors().isEmpty() )
-        {
-            d_nonTerms.clear();
-            updateExtraSelections();
-        }
-    }
-};
-
-class LuaIde::DocTab : public DocTabWidget
-{
-public:
-    DocTab(QWidget* p):DocTabWidget(p,false) {}
-
-    // overrides
-    bool isUnsaved(int i)
-    {
-        LuaIde::Editor* edit = static_cast<LuaIde::Editor*>( widget(i) );
-        return edit->isModified();
-    }
-
-    bool save(int i)
-    {
-        LuaIde::Editor* edit = static_cast<LuaIde::Editor*>( widget(i) );
-        if( !edit->saveToFile( edit->getPath(), false ) )
-            return false;
-        return true;
-    }
-};
-
-class LuaIde::Debugger : public DbgShell
-{
-public:
-    LuaIde* d_ide;
-    Debugger(LuaIde* ide):d_ide(ide){}
+    BcDebugger* d_ide;
+    Debugger(BcDebugger* ide):d_ide(ide){}
     void handleBreak( Engine2* lua, const QByteArray& source, quint32 line )
     {
         d_ide->enableDbgMenu();
@@ -341,7 +137,7 @@ public:
     }
 };
 
-static LuaIde* s_this = 0;
+static BcDebugger* s_this = 0;
 static void report(QtMsgType type, const QString& message )
 {
     if( s_this )
@@ -369,16 +165,16 @@ static void messageHander(QtMsgType type, const QMessageLogContext& ctx, const Q
     report(type,message);
 }
 
-LuaIde::LuaIde(Engine2* lua, QWidget *parent)
-    : QMainWindow(parent),d_lock(false),d_filesDirty(false),d_pushBackLock(false)
+BcDebugger::BcDebugger(Engine2* lua, QWidget *parent)
+    : QMainWindow(parent),d_lock(false),d_pushBackLock(false)
 {
     s_this = this;
 
-    d_pro = new Project(this);
-
     if( lua )
+    {
         d_lua = lua;
-    else
+        d_lua->setBytecodeMode(true);
+    }else
     {
         d_lua = new Engine2(this);
         d_lua->addStdLibs();
@@ -388,24 +184,22 @@ LuaIde::LuaIde(Engine2* lua, QWidget *parent)
         d_lua->addLibrary(Engine2::JIT);
         d_lua->addLibrary(Engine2::FFI);
         d_lua->addLibrary(Engine2::OS);
+        d_lua->setBytecodeMode(true);
         Engine2::setInst(d_lua);
     }
     lua_pushcfunction( d_lua->getCtx(), Engine2::TRAP );
     lua_setglobal( d_lua->getCtx(), "TRAP" );
-    d_pro->addBuiltIn("TRAP");
     lua_pushcfunction( d_lua->getCtx(), Engine2::TRACE );
     lua_setglobal( d_lua->getCtx(), "TRACE" );
-    d_pro->addBuiltIn("TRACE");
     lua_pushcfunction( d_lua->getCtx(), Engine2::ABORT );
     lua_setglobal( d_lua->getCtx(), "ABORT" );
-    d_pro->addBuiltIn("ABORT");
 
     d_dbg = new Debugger(this);
     d_lua->setDbgShell(d_dbg);
     // d_lua->setAliveSignal(true); // reduces performance by factor 2 to 5
     connect( d_lua, SIGNAL(onNotify(int,QByteArray,int)),this,SLOT(onLuaNotify(int,QByteArray,int)) );
 
-    d_tab = new DocTab(this);
+    d_tab = new DocTabWidget(this,false);
     d_tab->setCloserIcon( ":/images/close.png" );
     Gui::AutoMenu* pop = new Gui::AutoMenu( d_tab, true );
     pop->addCommand( tr("Forward Tab"), d_tab, SLOT(onDocSelect()), tr(OBN_NEXTDOC_SC) );
@@ -462,10 +256,8 @@ LuaIde::LuaIde(Engine2* lua, QWidget *parent)
     enableDbgMenu();
 
     createTerminal();
-    createDumpView();
     createMods();
     createErrs();
-    createXref();
     createStack();
     createLocals();
     createMenu();
@@ -490,20 +282,21 @@ LuaIde::LuaIde(Engine2* lua, QWidget *parent)
         restoreState( state.toByteArray() );
 
 
-    connect( d_pro,SIGNAL(sigRenamed()),this,SLOT(onCaption()) );
-    connect( d_pro,SIGNAL(sigModified(bool)),this,SLOT(onCaption()) );
+    // TODO connect( d_pro,SIGNAL(sigRenamed()),this,SLOT(onCaption()) );
+    // TODO connect( d_pro,SIGNAL(sigModified(bool)),this,SLOT(onCaption()) );
 }
 
-LuaIde::~LuaIde()
+BcDebugger::~BcDebugger()
 {
     d_lua->setDbgShell(0);
     delete d_dbg;
 }
 
-void LuaIde::loadFile(const QString& path)
+void BcDebugger::loadFile(const QString& path)
 {
     QFileInfo info(path);
 
+    /* TODO
     if( info.isDir() && info.suffix() != ".luapro" )
     {
         d_pro->initializeFromDir( path );
@@ -511,23 +304,30 @@ void LuaIde::loadFile(const QString& path)
     {
         d_pro->loadFrom(path);
     }
+    */
 
     onCaption();
-
-    onCompile();
 }
 
-void LuaIde::logMessage(const QString& str, bool err)
+void BcDebugger::logMessage(const QString& str, bool err)
 {
     d_term->printText(str,err);
 }
 
-void LuaIde::setSpecialInterpreter(bool on)
+void BcDebugger::setSpecialInterpreter(bool on)
 {
     d_term->setSpecialInterpreter(on);
 }
 
-void LuaIde::closeEvent(QCloseEvent* event)
+bool BcDebugger::initializeFromFiles(const Files& files, const QString& workingDir, const QByteArray& run)
+{
+    d_files = files;
+    d_runCmd = run;
+    d_workingDir = workingDir;
+    fillMods();
+}
+
+void BcDebugger::closeEvent(QCloseEvent* event)
 {
     if( d_lua->isExecuting() )
     {
@@ -543,7 +343,7 @@ void LuaIde::closeEvent(QCloseEvent* event)
     qApp->quit();
 }
 
-void LuaIde::createTerminal()
+void BcDebugger::createTerminal()
 {
     QDockWidget* dock = new QDockWidget( tr("Terminal"), this );
     dock->setObjectName("Terminal");
@@ -555,28 +355,7 @@ void LuaIde::createTerminal()
     new Gui::AutoShortcut( tr("CTRL+SHIFT+C"), this, d_term, SLOT(onClear()) );
 }
 
-void LuaIde::createDumpView()
-{
-    QDockWidget* dock = new QDockWidget( tr("Bytecode"), this );
-    dock->setObjectName("Bytecode");
-    dock->setAllowedAreas( Qt::AllDockWidgetAreas );
-    dock->setFeatures( QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable );
-    d_bcv = new BcViewer2(dock);
-    dock->setWidget(d_bcv);
-    addDockWidget( Qt::RightDockWidgetArea, dock );
-    connect(d_bcv,SIGNAL(sigGotoLine(quint32)),this,SLOT(onGotoLnr(quint32)));
-
-    Gui::AutoMenu* pop = new Gui::AutoMenu( d_bcv, true );
-    pop->addCommand( "Run on LuaJIT", this, SLOT(onRun()), tr("CTRL+R"), false );
-    addDebugMenu(pop);
-    pop->addSeparator();
-    pop->addCommand( "Show low level bytecode", this, SLOT(onShowLlBc()) );
-    //pop->addCommand( "Export binary...", this, SLOT(onExportBc()) );
-    //pop->addCommand( "Export LjAsm...", this, SLOT(onExportAsm()) );
-    addTopCommands(pop);
-}
-
-void LuaIde::createMods()
+void BcDebugger::createMods()
 {
     QDockWidget* dock = new QDockWidget( tr("Modules"), this );
     dock->setObjectName("Modules");
@@ -591,7 +370,7 @@ void LuaIde::createMods()
     connect( d_mods, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)),this,SLOT(onModsDblClicked(QTreeWidgetItem*,int)) );
 }
 
-void LuaIde::createErrs()
+void BcDebugger::createErrs()
 {
     QDockWidget* dock = new QDockWidget( tr("Issues"), this );
     dock->setObjectName("Issues");
@@ -614,32 +393,7 @@ void LuaIde::createErrs()
     connect( new QShortcut( tr("ESC"), this ), SIGNAL(activated()), dock, SLOT(hide()) );
 }
 
-void LuaIde::createXref()
-{
-    QDockWidget* dock = new QDockWidget( tr("Xref"), this );
-    dock->setObjectName("Xref");
-    dock->setAllowedAreas( Qt::AllDockWidgetAreas );
-    dock->setFeatures( QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable );
-    QWidget* pane = new QWidget(dock);
-    QVBoxLayout* vbox = new QVBoxLayout(pane);
-    vbox->setMargin(0);
-    vbox->setSpacing(0);
-    d_xrefTitle = new QLabel(pane);
-    d_xrefTitle->setMargin(2);
-    d_xrefTitle->setWordWrap(true);
-    vbox->addWidget(d_xrefTitle);
-    d_xref = new QTreeWidget(pane);
-    d_xref->setAlternatingRowColors(true);
-    d_xref->setHeaderHidden(true);
-    d_xref->setAllColumnsShowFocus(true);
-    d_xref->setRootIsDecorated(false);
-    vbox->addWidget(d_xref);
-    dock->setWidget(pane);
-    addDockWidget( Qt::LeftDockWidgetArea, dock );
-    connect(d_xref, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)), this, SLOT(onXrefDblClicked()) );
-}
-
-void LuaIde::createStack()
+void BcDebugger::createStack()
 {
     QDockWidget* dock = new QDockWidget( tr("Stack"), this );
     dock->setObjectName("Stack");
@@ -658,7 +412,7 @@ void LuaIde::createStack()
     connect( d_stack, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)),this,SLOT(onStackDblClicked(QTreeWidgetItem*,int)) );
 }
 
-void LuaIde::createLocals()
+void BcDebugger::createLocals()
 {
     QDockWidget* dock = new QDockWidget( tr("Locals"), this );
     dock->setObjectName("Locals");
@@ -674,12 +428,13 @@ void LuaIde::createLocals()
     addDockWidget( Qt::LeftDockWidgetArea, dock );
 }
 
-void LuaIde::createMenu()
+void BcDebugger::createMenu()
 {
     Gui::AutoMenu* pop = new Gui::AutoMenu( d_mods, true );
     pop->addCommand( "Show File", this, SLOT(onOpenFile()) );
-    pop->addAction("Expand all", d_mods, SLOT(expandAll()) );
-    pop->addSeparator();
+    //pop->addAction("Expand all", d_mods, SLOT(expandAll()) );
+    //pop->addSeparator();
+    /*
     pop->addCommand( "New Project", this, SLOT(onNewPro()), tr("CTRL+N"), false );
     pop->addCommand( "Open Project...", this, SLOT(onOpenPro()), tr("CTRL+O"), false );
     pop->addCommand( "Save Project", this, SLOT(onSavePro()), tr("CTRL+SHIFT+S"), false );
@@ -688,48 +443,42 @@ void LuaIde::createMenu()
     pop->addCommand( "Add Modules...", this, SLOT(onAddFiles()) );
     pop->addCommand( "Remove Module...", this, SLOT(onRemoveFile()) );
     pop->addSeparator();
+    */
     pop->addCommand( "Set Main Function...", this, SLOT( onSetMain() ) );
     pop->addCommand( "Set Working Directory...", this, SLOT( onWorkingDir() ) );
     pop->addSeparator();
-    pop->addCommand( "Compile", this, SLOT(onCompile()), tr("CTRL+T"), false );
-    pop->addCommand( "Compile && Generate", this, SLOT(onGenerate()), tr("CTRL+SHIFT+T"), false );
     pop->addCommand( "Run on LuaJIT", this, SLOT(onRun()), tr("CTRL+R"), false );
     addDebugMenu(pop);
     addTopCommands(pop);
 
-    new Gui::AutoShortcut( tr("CTRL+O"), this, this, SLOT(onOpenPro()) );
-    new Gui::AutoShortcut( tr("CTRL+N"), this, this, SLOT(onNewPro()) );
-    new Gui::AutoShortcut( tr("CTRL+SHIFT+S"), this, this, SLOT(onSavePro()) );
-    new Gui::AutoShortcut( tr("CTRL+S"), this, this, SLOT(onSaveFile()) );
+    //new Gui::AutoShortcut( tr("CTRL+O"), this, this, SLOT(onOpenPro()) );
+    //new Gui::AutoShortcut( tr("CTRL+N"), this, this, SLOT(onNewPro()) );
+    //new Gui::AutoShortcut( tr("CTRL+SHIFT+S"), this, this, SLOT(onSavePro()) );
+    //new Gui::AutoShortcut( tr("CTRL+S"), this, this, SLOT(onSaveFile()) );
     new Gui::AutoShortcut( tr("CTRL+R"), this, this, SLOT(onRun()) );
-    new Gui::AutoShortcut( tr("CTRL+T"), this, this, SLOT(onCompile()) );
-    new Gui::AutoShortcut( tr("CTRL+SHIFT+T"), this, this, SLOT(onGenerate()) );
     new Gui::AutoShortcut( tr(OBN_GOBACK_SC), this, this, SLOT(handleGoBack()) );
     new Gui::AutoShortcut( tr(OBN_GOFWD_SC), this, this, SLOT(handleGoForward()) );
     new Gui::AutoShortcut( tr(OBN_TOGBP_SC), this, this, SLOT(onToggleBreakPt()) );
     new Gui::AutoShortcut( tr(OBN_ENDBG_SC), this, this, SLOT(onEnableDebug()) );
 }
 
-void LuaIde::createMenuBar()
+void BcDebugger::createMenuBar()
 {
     Gui::AutoMenu* pop = new Gui::AutoMenu( tr("File"), this );
+    /*
     pop->addCommand( "New Project", this, SLOT(onNewPro()), tr("CTRL+N"), false );
     pop->addCommand( "Open Project...", this, SLOT(onOpenPro()), tr("CTRL+O"), false );
     pop->addCommand( "Save Project", this, SLOT(onSavePro()), tr("CTRL+SHIFT+S"), false );
     pop->addCommand( "Save Project as...", this, SLOT(onSaveAs()) );
     pop->addSeparator();
     pop->addCommand( "Save", this, SLOT(onSaveFile()), tr("CTRL+S"), false );
+    */
     pop->addCommand( tr("Close file"), d_tab, SLOT(onCloseDoc()), tr("CTRL+W") );
     pop->addCommand( tr("Close all"), d_tab, SLOT(onCloseAll()) );
     pop->addSeparator();
-    //pop->addCommand( "Export binary...", this, SLOT(onExportBc()) );
-    //pop->addCommand( "Export LjAsm...", this, SLOT(onExportAsm()) );
-    pop->addSeparator();
-    pop->addAutoCommand( "Print...", SLOT(handlePrint()), tr("CTRL+P"), true );
-    pop->addAutoCommand( "Export PDF...", SLOT(handleExportPdf()), tr("CTRL+SHIFT+P"), true );
-    pop->addSeparator();
     pop->addCommand(tr("Quit"),this,SLOT(onQuit()), tr("CTRL+Q"), true );
 
+    /*
     pop = new Gui::AutoMenu( tr("Edit"), this );
     pop->addAutoCommand( "Undo", SLOT(handleEditUndo()), tr("CTRL+Z"), true );
     pop->addAutoCommand( "Redo", SLOT(handleEditRedo()), tr("CTRL+Y"), true );
@@ -748,20 +497,19 @@ void LuaIde::createMenuBar()
     pop->addAutoCommand( "Unindent", SLOT(handleUnindent()) );
     pop->addAutoCommand( "Fix Indents", SLOT(handleFixIndent()) );
     pop->addAutoCommand( "Set Indentation Level...", SLOT(handleSetIndent()) );
+    */
 
     pop = new Gui::AutoMenu( tr("Project"), this );
+    /*
     pop->addCommand( "Add Modules...", this, SLOT(onAddFiles()) );
     pop->addCommand( "Remove Module...", this, SLOT(onRemoveFile()) );
     pop->addSeparator();
+    */
     pop->addCommand( "Set Main Function...", this, SLOT( onSetMain() ) );
     pop->addCommand( "Set Working Directory...", this, SLOT( onWorkingDir() ) );
 
-    pop = new Gui::AutoMenu( tr("Build && Run"), this );
-    pop->addCommand( "Compile", this, SLOT(onCompile()), tr("CTRL+T"), false );
-    pop->addCommand( "Compile && Generate", this, SLOT(onGenerate()), tr("CTRL+SHIFT+T"), false );
-    pop->addCommand( "Run on LuaJIT", this, SLOT(onRun()), tr("CTRL+R"), false );
-
     pop = new Gui::AutoMenu( tr("Debug"), this );
+    pop->addCommand( "Run on LuaJIT", this, SLOT(onRun()), tr("CTRL+R"), false );
     pop->addCommand( "Enable Debugging", this, SLOT(onEnableDebug()),tr(OBN_ENDBG_SC), false );
     pop->addCommand( "Toggle Breakpoint", this, SLOT(onToggleBreakPt()), tr(OBN_TOGBP_SC), false);
     pop->addAction( d_dbgStepIn );
@@ -770,7 +518,6 @@ void LuaIde::createMenuBar()
     pop->addAction( d_dbgBreak );
     pop->addAction( d_dbgContinue );
     pop->addAction( d_dbgAbort );
-
 
     pop = new Gui::AutoMenu( tr("Window"), this );
     pop->addCommand( tr("Next Tab"), d_tab, SLOT(onDocSelect()), tr(OBN_NEXTDOC_SC) );
@@ -792,34 +539,22 @@ void LuaIde::createMenuBar()
     help->addCommand( "&About Qt...", this, SLOT(onQt()) );
 }
 
-void LuaIde::onCompile()
+void BcDebugger::onRun()
 {
-    ENABLED_IF(true);
-    compile();
-}
+    ENABLED_IF( !d_files.isEmpty() && !d_lua->isExecuting() );
 
-void LuaIde::onRun()
-{
-    ENABLED_IF( !d_pro->getFiles().isEmpty() && !d_lua->isExecuting() && !d_filesDirty );
 
-    if( !compile(true) )
-        return;
-
-    QDir::setCurrent(d_pro->getWorkingDir(true));
-
+    QDir::setCurrent(d_workingDir);
 
     bool hasErrors = false;
-    foreach( const QString& path, d_pro->getFileOrder() )
+    foreach( const SourceBinaryPair& path, d_files )
     {
-        if( path.startsWith(":/") )
-            continue;
-        const QString module = QFileInfo(path).baseName();
+        const QString module = QFileInfo(path.second).baseName();
         d_lua->executeCmd( QString("package.loaded[\"%1\"]=nil").arg(module).toUtf8(), "terminal" );
-        if( !d_lua->executeFile(path.toUtf8()) )
+        if( !d_lua->executeFile(path.second.toUtf8()) )
         {
             hasErrors = true;
-        }else if( d_pro->useRequire())
-            d_lua->executeCmd( QString("%1 = require '%2'").arg(module).arg(module).toUtf8(), "terminal" );
+        }
 
         if( d_lua->isAborted() )
         {
@@ -835,53 +570,38 @@ void LuaIde::onRun()
         return;
     }
 
-    Project::ModProc main = d_pro->getMain();
-
-    QByteArray src;
-    QTextStream out(&src);
-
     //out << "jit.off()" << endl;
     //out << "jit.opt.start(3)" << endl;
     //out << "jit.opt.start(\"-abc\")" << endl;
     //out << "jit.opt.start(\"-fuse\")" << endl;
     //out << "jit.opt.start(\"hotloop=10\", \"hotexit=2\")" << endl;
 
-    if( !main.first.isEmpty() )
-        out << main.first << "." << main.second << "()" << endl;
-    else if( !main.second.isEmpty() )
-        out << main.second << "()" << endl;
-    out.flush();
-    if( !src.isEmpty() )
-        d_lua->executeCmd(src,"terminal");
+    if( !d_runCmd.isEmpty() )
+        d_lua->executeCmd(d_runCmd);
     removePosMarkers();
 
 }
 
-void LuaIde::onAbort()
+void BcDebugger::onAbort()
 {
     // ENABLED_IF( d_lua->isWaiting() );
     d_lua->terminate();
 }
 
-void LuaIde::onGenerate()
-{
-    ENABLED_IF(true);
-    compile(true);
-}
-
-void LuaIde::onNewPro()
+void BcDebugger::onNewPro()
 {
     ENABLED_IF(true);
 
     if( !checkSaved( tr("New Project")) )
         return;
 
-    d_pro->createNew();
+    // TODO d_pro->createNew();
     d_tab->onCloseAll();
-    compile();
+    fillMods();
+    onTabChanged();
 }
 
-void LuaIde::onOpenPro()
+void BcDebugger::onOpenPro()
 {
     ENABLED_IF( true );
 
@@ -896,34 +616,34 @@ void LuaIde::onOpenPro()
     QDir::setCurrent(QFileInfo(fileName).absolutePath());
 
     d_tab->onCloseAll();
-    d_pro->loadFrom(fileName);
+    // TODO d_pro->loadFrom(fileName);
 
-    compile();
+    fillMods();
+    onTabChanged();
 }
 
-void LuaIde::onSavePro()
+void BcDebugger::onSavePro()
 {
+    /* TODO
     ENABLED_IF( d_pro->isDirty() );
 
     if( !d_pro->getFilePath().isEmpty() )
         d_pro->save();
     else
         onSaveAs();
+        */
 }
 
-void LuaIde::onSaveFile()
+void BcDebugger::onSaveFile()
 {
-    Editor* edit = static_cast<Editor*>( d_tab->getCurrentTab() );
-    ENABLED_IF( edit && edit->isModified() );
-
-    edit->saveToFile( edit->getPath() );
-    d_pro->getFc()->removeFile( edit->getPath() );
+    // TODO
 }
 
-void LuaIde::onSaveAs()
+void BcDebugger::onSaveAs()
 {
     ENABLED_IF(true);
 
+    /* TODO
     QString fileName = QFileDialog::getSaveFileName(this, tr("Save Project"),
                                                           QFileInfo(d_pro->getFilePath()).absolutePath(),
                                                           tr("Lua Project (*.luapro)") );
@@ -937,11 +657,13 @@ void LuaIde::onSaveAs()
         fileName += ".luapro";
 
     d_pro->saveTo(fileName);
+    */
     onCaption();
 }
 
-void LuaIde::onCaption()
+void BcDebugger::onCaption()
 {
+    /* TODO
     const QString star = d_pro->isDirty() || d_filesDirty ? "*" : "";
     if( d_pro->getFilePath().isEmpty() )
     {
@@ -951,23 +673,26 @@ void LuaIde::onCaption()
         QFileInfo info(d_pro->getFilePath());
         setWindowTitle(tr("%1%2 - %3").arg(info.fileName()).arg(star).arg(qApp->applicationName()) );
     }
+    */
 }
 
-void LuaIde::onGotoLnr(quint32 lnr)
+void BcDebugger::onGotoLnr(quint32 lnr)
 {
     if( d_lock )
         return;
     d_lock = true;
+    /* TODO
     Editor* edit = static_cast<Editor*>( d_tab->getCurrentTab() );
     if( edit )
     {
         edit->setCursorPosition(lnr-1,0);
         edit->setFocus();
     }
+    */
     d_lock = false;
 }
 
-void LuaIde::onFullScreen()
+void BcDebugger::onFullScreen()
 {
     CHECKED_IF(true,isFullScreen());
     QSettings s;
@@ -982,12 +707,12 @@ void LuaIde::onFullScreen()
     }
 }
 
-void LuaIde::onCursor()
+void BcDebugger::onCursor()
 {
-    fillXref();
     if( d_lock )
         return;
     d_lock = true;
+    /* TODO
     Editor* edit = static_cast<Editor*>( d_tab->getCurrentTab() );
     if( edit )
     {
@@ -995,19 +720,16 @@ void LuaIde::onCursor()
         const int line = cur.blockNumber() + 1;
         d_bcv->gotoLine(line);
     }
+    */
     d_lock = false;
 }
 
-void LuaIde::onModsDblClicked(QTreeWidgetItem* item, int)
+void BcDebugger::onModsDblClicked(QTreeWidgetItem* item, int)
 {
-    ScopeRef s = item->data(0,Qt::UserRole).value<ScopeRef>();
-    if( s.isNull() )
-        return;
-
-    showEditor( s.data(), false, true );
+    showEditor( item->data(0,Qt::UserRole).toString() );
 }
 
-void LuaIde::onStackDblClicked(QTreeWidgetItem* item, int)
+void BcDebugger::onStackDblClicked(QTreeWidgetItem* item, int)
 {
     if( item )
     {
@@ -1015,7 +737,8 @@ void LuaIde::onStackDblClicked(QTreeWidgetItem* item, int)
         if( !source.isEmpty() )
         {
             const quint32 line = item->data(2,Qt::UserRole).toUInt();
-            showEditor( source, line, 1 );
+            const quint32 func = item->data(1,Qt::UserRole).toUInt();
+            showEditor( source, func, line );
         }
         const int level = item->data(0,Qt::UserRole).toInt();
         d_lua->setActiveLevel(level);
@@ -1023,99 +746,52 @@ void LuaIde::onStackDblClicked(QTreeWidgetItem* item, int)
     }
 }
 
-void LuaIde::onTabChanged()
+void BcDebugger::onTabChanged()
 {
-    const QString path = d_tab->getCurrentDoc().toString();
-
     onEditorChanged();
-
-    if( !path.isEmpty() )
-    {
-        QByteArray bc; //  TODO
-        if( !bc.isEmpty() )
-        {
-            QBuffer buf( &bc );
-            buf.open(QIODevice::ReadOnly);
-            d_bcv->loadFrom(&buf);
-            onCursor();
-            return;
-        }
-    }
-    // else
-    d_bcv->clear();
 }
 
-void LuaIde::onTabClosing(int i)
+void BcDebugger::onTabClosing(int i)
 {
-    d_pro->getFc()->removeFile( d_tab->getDoc(i).toString() );
+    // TODO d_pro->getFc()->removeFile( d_tab->getDoc(i).toString() );
 }
 
-void LuaIde::onEditorChanged()
+void BcDebugger::onEditorChanged()
 {
-    // only fired once when editor switches from unmodified to modified and back
-    // not fired for every key press
-    d_filesDirty = false;
     for( int i = 0; i < d_tab->count(); i++ )
     {
-        Editor* e = static_cast<Editor*>( d_tab->widget(i) );
-        if( e->isModified() )
-            d_filesDirty = true;
+        BcViewer2* e = static_cast<BcViewer2*>( d_tab->widget(i) );
         QFileInfo info( d_tab->getDoc(i).toString() );
-        d_tab->setTabText(i, info.fileName() + ( e->isModified() ? "*" : "" ) );
+        d_tab->setTabText(i, info.baseName() );
     }
     onCaption();
 }
 
-void LuaIde::onErrorsDblClicked()
+void BcDebugger::onErrorsDblClicked()
 {
     QTreeWidgetItem* item = d_errs->currentItem();
     showEditor( item->data(0, Qt::UserRole ).toString(),
                 item->data(1, Qt::UserRole ).toInt(), item->data(2, Qt::UserRole ).toInt() );
 }
 
-void LuaIde::onErrors()
+void BcDebugger::onErrors()
 {
     d_errs->clear();
-    Ljas::Errors::EntryList errs = d_pro->getErrs()->getAll();
-
-    for( int i = 0; i < errs.size(); i++ )
-    {
-        QTreeWidgetItem* item = new QTreeWidgetItem(d_errs);
-        item->setText(2, errs[i].d_msg );
-        item->setToolTip(2, item->text(2) );
-        if( errs[i].d_isErr )
-            item->setIcon(0, QPixmap(":/images/exclamation-red.png") );
-        else
-            item->setIcon(0, QPixmap(":/images/exclamation-circle.png") );
-        item->setText(0, QFileInfo(errs[i].d_file).baseName() );
-        item->setText(1, QString("%1:%2").arg(errs[i].d_line).arg(errs[i].d_col));
-        item->setData(0, Qt::UserRole, errs[i].d_file );
-        item->setData(1, Qt::UserRole, errs[i].d_line );
-        item->setData(2, Qt::UserRole, qMax(errs[i].d_col,quint16(1)) );
-    }
-    if( errs.size() )
-        d_errs->parentWidget()->show();
-
-    for( int i = 0; i < d_tab->count(); i++ )
-    {
-        Editor* e = static_cast<Editor*>( d_tab->widget(i) );
-        Q_ASSERT( e );
-        e->updateExtraSelections();
-    }
 }
 
-void LuaIde::onOpenFile()
+void BcDebugger::onOpenFile()
 {
     ENABLED_IF( d_mods->currentItem() );
 
     onModsDblClicked( d_mods->currentItem(), 0 );
 }
 
-void LuaIde::onAddFiles()
+void BcDebugger::onAddFiles()
 {
     ENABLED_IF(true);
 
     QString filter;
+    /* TODO
     foreach( const QString& suf, d_pro->getSuffixes() )
         filter += " *" + suf;
     const QStringList files = QFileDialog::getOpenFileNames(this,tr("Add Modules"),QString(),filter );
@@ -1124,18 +800,16 @@ void LuaIde::onAddFiles()
         if( !d_pro->addFile(f) )
             qWarning() << "cannot add module" << f;
     }
-    compile();
+    */
+    fillMods();
+    onTabChanged();
 }
 
-void LuaIde::onRemoveFile()
+void BcDebugger::onRemoveFile()
 {
     ENABLED_IF( d_mods->currentItem() );
 
-    ScopeRef s = d_mods->currentItem()->data(0,Qt::UserRole).value<ScopeRef>();
-    if( s.isNull() )
-        return;
-
-    QString path = s->d_tok.d_sourcePath;
+    QString path = d_mods->currentItem()->data(0,Qt::UserRole).toString();
     if( path.isEmpty() )
         return;
 
@@ -1143,13 +817,17 @@ void LuaIde::onRemoveFile()
                               tr("Do you really want to remove module '%1' from project?").arg(QFileInfo(path).baseName()),
                            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Yes ) != QMessageBox::Yes )
         return;
-    if( !d_pro->removeFile( path ) )
-        qWarning() << "cannot remove module" << path;
-    else
-        compile();
+    for(int i = 0; i < d_files.size(); i++ )
+    {
+        if( d_files[i].second == path )
+        {
+            d_files.removeAt(i);
+            break;
+        }
+    }
 }
 
-void LuaIde::onEnableDebug()
+void BcDebugger::onEnableDebug()
 {
     CHECKED_IF( true, d_lua->isDebug() );
 
@@ -1157,7 +835,7 @@ void LuaIde::onEnableDebug()
     enableDbgMenu();
 }
 
-void LuaIde::onBreak()
+void BcDebugger::onBreak()
 {
     if( !d_lua->isDebug() )
         d_lua->setDebug(true);
@@ -1166,22 +844,9 @@ void LuaIde::onBreak()
     d_lua->runToNextLine();
 }
 
-bool LuaIde::checkSaved(const QString& title)
+bool BcDebugger::checkSaved(const QString& title)
 {
-    if( d_filesDirty )
-    {
-        switch( QMessageBox::critical( this, title, tr("There are modified files; do you want to save them?"),
-                               QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes ) )
-        {
-        case QMessageBox::Yes:
-            // TODO
-            break;
-        case QMessageBox::No:
-            break;
-        default:
-            return false;
-        }
-    }
+    /* TODO
     if( d_pro->isDirty() )
     {
         switch( QMessageBox::critical( this, title, tr("The the project has not been saved; do you want to save it?"),
@@ -1205,24 +870,8 @@ bool LuaIde::checkSaved(const QString& title)
             return false;
         }
     }
+    */
     return true;
-}
-
-bool LuaIde::compile(bool generate )
-{
-    for( int i = 0; i < d_tab->count(); i++ )
-    {
-        Editor* e = static_cast<Editor*>( d_tab->widget(i) );
-        if( e->isModified() )
-            d_pro->getFc()->addFile( e->getPath(), e->toPlainText().toUtf8() );
-        else
-            d_pro->getFc()->removeFile( e->getPath() );
-    }
-    d_pro->recompile();
-    onErrors();
-    fillMods();
-    onTabChanged();
-    return d_pro->getErrs()->getErrCount() == 0;
 }
 
 static bool sortNamed( Module::Thing* lhs, Module::Thing* rhs )
@@ -1243,53 +892,20 @@ static bool sortNamed( Module::Thing* lhs, Module::Thing* rhs )
     return l < r;
 }
 
-static void fillScope( QTreeWidgetItem* p, Module* m, Module::Scope* s )
-{
-    QList<Module::Thing*> sort;
-    for( int j = 0; j < s->d_locals.size(); j++ )
-        sort << s->d_locals[j].data();
-    if( m )
-    {
-        foreach( const Module::Ref<Module::Function>& f, m->getNonLocals() )
-            sort << f.data();
-    }
-    std::sort( sort.begin(), sort.end(), sortNamed );
-    foreach( Module::Thing* n, sort )
-    {
-        if( n->getTag() == Module::Thing::T_Function )
-        {
-            QTreeWidgetItem* item = new QTreeWidgetItem( p );
-            if( n->d_tok.d_val.isEmpty() )
-                item->setText(0, QString("<function %1>").arg(n->d_tok.d_lineNr) );
-            else
-                item->setText(0, n->d_tok.d_val );
-            Module::Scope* s = static_cast<Module::Scope*>(n);
-            item->setData(0,Qt::UserRole, QVariant::fromValue( ScopeRef(s)) );
-            fillScope(item, 0, s );
-        }
-    }
-}
-
-void LuaIde::fillMods()
+void BcDebugger::fillMods()
 {
     d_mods->clear();
-    foreach( const QString& path, d_pro->getFileOrder() )
+    foreach( const SourceBinaryPair& path, d_files )
     {
-        Module* m = d_pro->getFiles().value(path);
-        Q_ASSERT( m != 0 );
-        ScopeRef s(m->getTopChunk());
-        if( s.isNull() )
-            continue;
         QTreeWidgetItem* item = new QTreeWidgetItem(d_mods);
-        item->setText(0, QFileInfo(path).baseName());
-        item->setToolTip(0,path);
-        item->setData(0,Qt::UserRole,QVariant::fromValue(s) );
-        fillScope( item, m, s.data() );
+        item->setText(0, QFileInfo(path.first).baseName());
+        item->setToolTip(0,path.first);
+        item->setData(0,Qt::UserRole,path.first );
     }
     d_mods->sortByColumn(0,Qt::AscendingOrder);
 }
 
-void LuaIde::addTopCommands(Gui::AutoMenu* pop)
+void BcDebugger::addTopCommands(Gui::AutoMenu* pop)
 {
     Q_ASSERT( pop != 0 );
     pop->addSeparator();
@@ -1303,83 +919,62 @@ void LuaIde::addTopCommands(Gui::AutoMenu* pop)
     pop->addCommand(tr("Quit"),this,SLOT(onQuit()) );
 }
 
-void LuaIde::showEditor(const QString& path, int row, int col, bool setMarker , bool center)
+void BcDebugger::showEditor(const QString& path, quint32 func, quint32 pc, bool setMarker , bool center)
 {
-    if( !d_pro->getFiles().contains(path) )
+    int found = -1;
+    for(int i = 0; i < d_files.size(); i++ )
+    {
+        if( d_files[i].first == path || d_files[i].second == path )
+        {
+            found = i;
+            break;
+        }
+    }
+    if( found == -1 )
         return;
 
     const int i = d_tab->findDoc(path);
-    Editor* edit = 0;
+    BcViewer2* edit = 0;
     if( i != -1 )
     {
         d_tab->setCurrentIndex(i);
-        edit = static_cast<Editor*>( d_tab->widget(i) );
+        edit = static_cast<BcViewer2*>( d_tab->widget(i) );
     }else
     {
-        edit = new Editor(this,d_pro);
+        edit = new BcViewer2(this);
         createMenu(edit);
 
-        connect(edit, SIGNAL(modificationChanged(bool)), this, SLOT(onEditorChanged()) );
-        connect(edit,SIGNAL(cursorPositionChanged()),this,SLOT(onCursor()));
-        connect(edit,SIGNAL(sigUpdateLocation(int,int)),this,SLOT(onUpdateLocation(int,int)));
+        //connect(edit, SIGNAL(modificationChanged(bool)), this, SLOT(onEditorChanged()) );
+        //connect(edit,SIGNAL(cursorPositionChanged()),this,SLOT(onCursor()));
+        //connect(edit,SIGNAL(sigUpdateLocation(int,int)),this,SLOT(onUpdateLocation(int,int)));
 
-        edit->loadFromFile(path);
+        edit->setLastWidth(200);
+        edit->loadFrom(d_files[found].second,d_files[found].first);
 
         const Engine2::Breaks& br = d_lua->getBreaks( path.toUtf8() );
         Engine2::Breaks::const_iterator j;
         for( j = br.begin(); j != br.end(); ++j )
-            edit->addBreakPoint((*j) - 1);
+            edit->addBreakPoint((*j));
 
         d_tab->addDoc(edit,path);
         onEditorChanged();
     }
-    if( row > 0 && col > 0 )
-    {
-        edit->setCursorPosition( row-1, col-1, center );
-        if( setMarker )
-            edit->setPositionMarker(row-1);
-    }
+
+    if( func != 0 && pc != 0 )
+        edit->gotoFuncPc( func, pc, center, setMarker );
     edit->setFocus();
 }
 
-void LuaIde::showEditor(Module::Thing* n, bool setMarker, bool center)
-{
-    showEditor( n->d_tok.d_sourcePath, n->d_tok.d_lineNr, n->d_tok.d_colNr, setMarker, center );
-}
-
-void LuaIde::createMenu(LuaIde::Editor* edit)
+void BcDebugger::createMenu(QWidget* edit)
 {
     Gui::AutoMenu* pop = new Gui::AutoMenu( edit, true );
-    pop->addCommand( "Save", this, SLOT(onSaveFile()), tr("CTRL+S"), false );
-    pop->addSeparator();
-    pop->addCommand( "Compile", this, SLOT(onCompile()), tr("CTRL+T"), false );
     pop->addCommand( "Run on LuaJIT", this, SLOT(onRun()), tr("CTRL+R"), false );
     addDebugMenu(pop);
     pop->addSeparator();
-    pop->addCommand( "Undo", edit, SLOT(handleEditUndo()), tr("CTRL+Z"), true );
-    pop->addCommand( "Redo", edit, SLOT(handleEditRedo()), tr("CTRL+Y"), true );
-    pop->addSeparator();
-    pop->addCommand( "Cut", edit, SLOT(handleEditCut()), tr("CTRL+X"), true );
-    pop->addCommand( "Copy", edit, SLOT(handleEditCopy()), tr("CTRL+C"), true );
-    pop->addCommand( "Paste", edit, SLOT(handleEditPaste()), tr("CTRL+V"), true );
-    pop->addSeparator();
-    pop->addCommand( "Find...", edit, SLOT(handleFind()), tr("CTRL+F"), true );
-    pop->addCommand( "Find again", edit, SLOT(handleFindAgain()), tr("F3"), true );
-    pop->addCommand( "Replace...", edit, SLOT(handleReplace()) );
-    pop->addSeparator();
-    pop->addCommand( "&Goto...", edit, SLOT(handleGoto()), tr("CTRL+G"), true );
-    pop->addSeparator();
-    pop->addCommand( "Indent", edit, SLOT(handleIndent()) );
-    pop->addCommand( "Unindent", edit, SLOT(handleUnindent()) );
-    pop->addCommand( "Fix Indents", edit, SLOT(handleFixIndent()) );
-    pop->addCommand( "Set Indentation Level...", edit, SLOT(handleSetIndent()) );
-    pop->addSeparator();
-    pop->addCommand( "Print...", edit, SLOT(handlePrint()), tr("CTRL+P"), true );
-    pop->addCommand( "Export PDF...", edit, SLOT(handleExportPdf()), tr("CTRL+SHIFT+P"), true );
     addTopCommands(pop);
 }
 
-void LuaIde::addDebugMenu(Gui::AutoMenu* pop)
+void BcDebugger::addDebugMenu(Gui::AutoMenu* pop)
 {
     Gui::AutoMenu* sub = new Gui::AutoMenu(tr("Debugger"), this, false );
     pop->addMenu(sub);
@@ -1394,14 +989,14 @@ void LuaIde::addDebugMenu(Gui::AutoMenu* pop)
 
 }
 
-bool LuaIde::luaRuntimeMessage(const QByteArray& msg, const QString& file )
+bool BcDebugger::luaRuntimeMessage(const QByteArray& msg, const QString& file )
 {
     Engine2::ErrorMsg em = Engine2::decodeRuntimeMessage(msg);
     if( em.d_line != 0 )
     {
         if( em.d_source.isEmpty() )
             em.d_source = file.toUtf8();
-        d_pro->getErrs()->error(Ljas::Errors::Runtime, em.d_source, em.d_line, 1, em.d_message );
+        // TODO d_pro->getErrs()->error(Ljas::Errors::Runtime, em.d_source, em.d_line, 1, em.d_message );
         return true;
     }
 
@@ -1413,6 +1008,7 @@ bool LuaIde::luaRuntimeMessage(const QByteArray& msg, const QString& file )
         const QString path = relativeToAbsolutePath(msg.left(pos1));
         const QString cap = reg.cap();
         const int pos2 = reg.indexIn(msg, pos1 + 1 );
+        /* TODO
         if( pos2 != -1 )
         {
             // resent error from pcall return
@@ -1427,114 +1023,15 @@ bool LuaIde::luaRuntimeMessage(const QByteArray& msg, const QString& file )
             d_pro->getErrs()->error(Ljas::Errors::Runtime, path.isEmpty() ? file : path,
                                 cap.mid(1,cap.size()-2).toInt(), 1,
                                 msg.mid(pos1+reg.matchedLength()).trimmed() );
+                                */
         return true;
     }
-    d_pro->getErrs()->error(Ljas::Errors::Runtime, file, 0, 0, msg );
+    // TODO d_pro->getErrs()->error(Ljas::Errors::Runtime, file, 0, 0, msg );
     return false;
     // qWarning() << "Unknown Lua error message format:" << msg;
 }
 
-static bool sortExList( const ThingRef& lhs, const ThingRef& rhs )
-{
-    const QString ln = lhs->d_tok.d_sourcePath;
-    const QString rn = rhs->d_tok.d_sourcePath;
-    const quint32 ll = packRowCol( lhs->d_tok.d_lineNr, lhs->d_tok.d_colNr );
-    const quint32 rl = packRowCol( rhs->d_tok.d_lineNr, rhs->d_tok.d_colNr );
-
-    return ln < rn || (!(rn < ln) && ll < rl);
-}
-
-void LuaIde::fillXref()
-{
-    Editor* edit = static_cast<Editor*>( d_tab->getCurrentTab() );
-    if( edit == 0 )
-    {
-        d_xref->clear();
-        d_xrefTitle->clear();
-        return;
-    }
-    int line, col;
-    edit->getCursorPosition( &line, &col );
-    line += 1;
-    col += 1;
-    ThingRef hitSym = d_pro->findSymbolBySourcePos(edit->getPath(), line, col);
-    if( hitSym )
-    {
-        Module::Thing* refSym = hitSym.data();
-        if( refSym->getTag() == Module::Thing::T_SymbolUse )
-            refSym = static_cast<Module::SymbolUse*>(refSym)->d_sym;
-        Editor::ExList l1, l2;
-        l1.append(refSym);
-        l2.append(refSym);
-        foreach( const Module::Ref<Module::SymbolUse>& e, refSym->d_uses )
-        {
-            l2 << e.data();
-            if( e->d_tok.d_sourcePath == edit->getPath() )
-                l1 << e.data();
-        }
-
-        edit->markNonTerms(l1);
-
-        std::sort( l2.begin(), l2.end(), sortExList );
-
-        QFont f = d_xref->font();
-        f.setBold(true);
-
-        QString type;
-        switch( refSym->getTag() )
-        {
-        case Module::Thing::T_Variable:
-            type = "Local Var";
-            break;
-        case Module::Thing::T_GlobalSym:
-            {
-                Module::GlobalSym* s = static_cast<Module::GlobalSym*>(refSym);
-                if( s->d_builtIn )
-                    type = "BuiltIn";
-                else
-                    type = "Global";
-            }
-            break;
-        case Module::Thing::T_Function:
-            {
-                Module::Function* f = static_cast<Module::Function*>(refSym);
-                switch( f->d_kind )
-                {
-                case Module::Function::Local:
-                    type = "Local Func";
-                    break;
-                case Module::Function::NonLocal:
-                    type = "Function";
-                    break;
-                case Module::Function::Global:
-                    type = "Global Func";
-                    break;
-                }
-            }
-            break;
-        }
-
-        d_xrefTitle->setText(QString("%1 '%2'").arg(type).arg(refSym->d_tok.d_val.constData()));
-
-        d_xref->clear();
-        foreach( const ThingRef& e, l2 )
-        {
-            QTreeWidgetItem* i = new QTreeWidgetItem(d_xref);
-            i->setText( 0, QString("%1 (%2:%3%4)")
-                        .arg(QFileInfo(e->d_tok.d_sourcePath).baseName())
-                        .arg(e->d_tok.d_lineNr).arg(e->d_tok.d_colNr)
-                        .arg( e->isImplicitDecl() ? " idecl" : e == refSym ? " decl" : e->isLhsUse() ? " lhs" : "" ));
-            if( e.data() == hitSym.data() )
-                i->setFont(0,f);
-            i->setToolTip( 0, i->text(0) );
-            i->setData( 0, Qt::UserRole, QVariant::fromValue( e ) );
-            if( e->d_tok.d_sourcePath != edit->getPath() )
-                i->setForeground( 0, Qt::gray );
-        }
-    }
-}
-
-void LuaIde::fillStack()
+void BcDebugger::fillStack()
 {
     d_stack->clear();
     Engine2::StackLevels ls = d_lua->getStackTrace();
@@ -1553,7 +1050,8 @@ void LuaIde::fillStack()
             item->setText(3,"(native)");
         }else
         {
-            item->setText(2,QString("%1").arg(l.d_line));
+            item->setData(1,Qt::UserRole,l.d_lineDefined );
+            item->setText(2,QString("%1").arg( l.d_line - 1 ));
             item->setData(2, Qt::UserRole, l.d_line );
             const QString path = relativeToAbsolutePath(l.d_source);
             item->setText(3, QFileInfo(path).baseName() );
@@ -1561,7 +1059,7 @@ void LuaIde::fillStack()
             item->setToolTip(3, path );
             if( !opened )
             {
-                showEditor(path, l.d_line, 1, true );
+                showEditor(path, l.d_lineDefined, l.d_line, true );
                 d_lua->setActiveLevel(level);
                 opened = true;
             }
@@ -1608,24 +1106,35 @@ static void typeAddr( QTreeWidgetItem* item, const QVariant& val )
 
 static void setLocalText( QTreeWidgetItem* local, const QVariant& val )
 {
-    local->setText(1, val.toString() );
     switch( val.type() )
     {
     case QVariant::Double:
         {
             const double d = val.toDouble();
             const int i = d;
-            if( d - double(i) == 0.0 )
+            if( d == NAN )
+            {
+                local->setText(1, "#NaN" );
+            }else if( d - double(i) == 0.0 )
+            {
                 local->setToolTip(1, QString("%1 0x%2").arg(i).arg(i,0,16));
-            else
+                local->setText(1, QString::number( quint32(d) ) );
+            }else
+            {
+                local->setText(1, val.toString() );
                 local->setToolTip(1,QString::number(d, 'f', 8 ));
+            }
         }
         break;
     case QVariant::Int:
     case QVariant::UInt:
     case QVariant::LongLong:
     case QVariant::ULongLong:
+        local->setText(1, val.toString() );
         local->setToolTip(1, QString("%1 0x%2").arg(val.toString()).arg(val.toLongLong(),0,16));
+        break;
+    default:
+        local->setText(1, val.toString() );
         break;
     }
 }
@@ -1656,10 +1165,10 @@ static void fillLocalSubs( QTreeWidgetItem* super, const QVariantMap& vals )
     }
 }
 
-void LuaIde::fillLocals()
+void BcDebugger::fillLocals()
 {
     d_locals->clear();
-    Engine2::LocalVars vs = d_lua->getLocalVars(true,4,50); // TODO: adjustable
+    Engine2::LocalVars vs = d_lua->getLocalVars(true,4,50,true); // TODO: adjustable
     foreach( const Engine2::LocalVar& v, vs )
     {
         QTreeWidgetItem* item = new QTreeWidgetItem(d_locals);
@@ -1715,26 +1224,26 @@ void LuaIde::fillLocals()
     }
 }
 
-void LuaIde::removePosMarkers()
+void BcDebugger::removePosMarkers()
 {
     for( int i = 0; i < d_tab->count(); i++ )
     {
-        Editor* e = static_cast<Editor*>( d_tab->widget(i) );
-        e->setPositionMarker(-1);
+        BcViewer2* e = static_cast<BcViewer2*>( d_tab->widget(i) );
+        e->clearMarker();
     }
 }
 
-void LuaIde::enableDbgMenu()
+void BcDebugger::enableDbgMenu()
 {
     d_dbgBreak->setEnabled(d_lua->isExecuting());
     d_dbgAbort->setEnabled(d_lua->isExecuting());
     d_dbgContinue->setEnabled(d_lua->isWaiting());
-    d_dbgStepIn->setEnabled(d_lua->isWaiting() && d_lua->isDebug() );
+    d_dbgStepIn->setEnabled(true);
     d_dbgStepOver->setEnabled(d_lua->isWaiting() && d_lua->isDebug() );
     d_dbgStepOut->setEnabled(d_lua->isWaiting() && d_lua->isDebug() );
 }
 
-void LuaIde::handleGoBack()
+void BcDebugger::handleGoBack()
 {
     ENABLED_IF( d_backHisto.size() > 1 );
 
@@ -1745,7 +1254,7 @@ void LuaIde::handleGoBack()
     d_pushBackLock = false;
 }
 
-void LuaIde::handleGoForward()
+void BcDebugger::handleGoForward()
 {
     ENABLED_IF( !d_forwardHisto.isEmpty() );
 
@@ -1754,86 +1263,71 @@ void LuaIde::handleGoForward()
     showEditor( cur.d_file, cur.d_line+1, cur.d_col+1 );
 }
 
-void LuaIde::onUpdateLocation(int line, int col)
+void BcDebugger::onUpdateLocation(int line, int col)
 {
+    /* TODO
     Editor* e = static_cast<Editor*>( sender() );
     e->clearBackHisto();
     pushLocation(Location(e->getPath(), line,col));
+    */
 }
 
-void LuaIde::onXrefDblClicked()
+void BcDebugger::onToggleBreakPt()
 {
-    QTreeWidgetItem* item = d_xref->currentItem();
-    if( item )
-    {
-        ThingRef e = item->data(0,Qt::UserRole).value<ThingRef>();
-        Q_ASSERT( !e.isNull() );
-        showEditor( e->d_tok.d_sourcePath, e->d_tok.d_lineNr, e->d_tok.d_colNr );
-    }
-}
-
-void LuaIde::onToggleBreakPt()
-{
-    Editor* edit = static_cast<Editor*>( d_tab->getCurrentTab() );
+    BcViewer2* edit = static_cast<BcViewer2*>( d_tab->getCurrentTab() );
     ENABLED_IF( edit );
 
-    quint32 line;
-    const bool on = edit->toggleBreakPoint(&line);
-    if( on )
-        d_lua->addBreak( edit->getPath().toUtf8(), line + 1 );
+    BcViewer2::Breakpoint bp;
+    if( !edit->toggleBreakPoint(&bp) )
+        return;
+    if( bp.d_on )
+        d_lua->addBreak( edit->getPath().toUtf8(), bp.d_linePc );
     else
-        d_lua->removeBreak( edit->getPath().toUtf8(), line + 1 );
+        d_lua->removeBreak( edit->getPath().toUtf8(), bp.d_linePc );
 }
 
-void LuaIde::onStepInto()
+void BcDebugger::onStepInto()
 {
     // ENABLED_IF( d_lua->isWaiting() );
 
-    d_lua->runToNextLine();
+    if( !d_lua->isWaiting() || !d_lua->isDebug() )
+    {
+        d_lua->setDebug(true);
+        enableDbgMenu();
+        d_lua->setDefaultCmd(Engine2::StepInto);
+        onRun();
+    }else
+        d_lua->runToNextLine();
 }
 
-void LuaIde::onStepOver()
+void BcDebugger::onStepOver()
 {
     d_lua->runToNextLine(Engine2::StepOver);
 }
 
-void LuaIde::onStepOut()
+void BcDebugger::onStepOut()
 {
     d_lua->runToNextLine(Engine2::StepOut);
 }
 
-void LuaIde::onContinue()
+void BcDebugger::onContinue()
 {
-    // ENABLED_IF( d_lua->isWaiting() );
-
     d_lua->runToBreakPoint();
 }
 
-void LuaIde::onShowLlBc()
-{
-    ENABLED_IF( d_bcv->topLevelItemCount() );
-
-    BcViewer* bc = new BcViewer();
-    QBuffer buf; // TODO
-    buf.open(QIODevice::ReadOnly);
-    bc->loadFrom( &buf );
-    bc->show();
-    bc->setAttribute(Qt::WA_DeleteOnClose);
-}
-
-void LuaIde::onWorkingDir()
+void BcDebugger::onWorkingDir()
 {
     ENABLED_IF(true);
 
     bool ok;
     const QString res = QInputDialog::getText(this,tr("Set Working Directory"), QString(), QLineEdit::Normal,
-                                              d_pro->getWorkingDir(), &ok );
+                                              d_workingDir, &ok );
     if( !ok )
         return;
-    d_pro->setWorkingDir(res);
+    d_workingDir = res;
 }
 
-void LuaIde::onLuaNotify(int messageType, QByteArray val1, int val2)
+void BcDebugger::onLuaNotify(int messageType, QByteArray val1, int val2)
 {
     switch( messageType )
     {
@@ -1849,7 +1343,7 @@ void LuaIde::onLuaNotify(int messageType, QByteArray val1, int val2)
     }
 }
 
-void LuaIde::pushLocation(const LuaIde::Location& loc)
+void BcDebugger::pushLocation(const BcDebugger::Location& loc)
 {
     if( d_pushBackLock )
         return;
@@ -1859,14 +1353,14 @@ void LuaIde::pushLocation(const LuaIde::Location& loc)
     d_backHisto.push_back( loc );
 }
 
-void LuaIde::onAbout()
+void BcDebugger::onAbout()
 {
     ENABLED_IF(true);
 
     QMessageBox::about( this, qApp->applicationName(),
       tr("<html>Release: %1   Date: %2<br><br>"
 
-      "Welcome to the Lua IDE.<br>"
+      "Welcome to the LuaJIT bytecode debugger.<br>"
       "See <a href=\"https://github.com/rochus-keller/LjTools\">"
          "here</a> for more information.<br><br>"
 
@@ -1876,39 +1370,24 @@ void LuaIde::onAbout()
       "</html>" ).arg( qApp->applicationVersion() ).arg( QDateTime::currentDateTime().toString("yyyy-MM-dd") ));
 }
 
-void LuaIde::onQt()
+void BcDebugger::onQt()
 {
     ENABLED_IF(true);
     QMessageBox::aboutQt(this,tr("About the Qt Framework") );
 }
 
-void LuaIde::onSetMain()
+void BcDebugger::onSetMain()
 {
     ENABLED_IF(true);
 
     bool ok;
-    QString main = QInputDialog::getText( this, tr("Set Main Function"), tr("[module.]function:"),QLineEdit::Normal,
-                           d_pro->formatMain(), &ok );
+    QString main = QInputDialog::getText( this, tr("Set Main Function"), tr("A Lua statement:"),QLineEdit::Normal,
+                           d_runCmd, &ok );
     if( ok )
-    {
-        QStringList parts = main.split('.');
-        if( parts.size() > 2 )
-        {
-            QMessageBox::critical(this,tr("Set Main Function"), tr("invalid main function format") );
-            return;
-        }
-        Project::ModProc modProc;
-        if( parts.size() == 2 )
-        {
-            modProc.first = parts.first().toUtf8();
-            modProc.second = parts.last().toUtf8();
-        }else
-            modProc.second = parts.first().toUtf8();
-        d_pro->setMain(modProc);
-    }
+        d_runCmd = main.toUtf8();
 }
 
-void LuaIde::onQuit()
+void BcDebugger::onQuit()
 {
     ENABLED_IF(!d_lua->isExecuting());
 
@@ -1921,11 +1400,11 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
-    a.setApplicationName("Lua IDE");
-    a.setApplicationVersion("0.3");
+    a.setApplicationName("LuaJIT Bytecode Debugger");
+    a.setApplicationVersion("0.1");
     a.setStyle("Fusion");
 
-    LuaIde w;
+    BcDebugger w;
 
     if( a.arguments().size() > 1 )
         w.loadFile(a.arguments()[1] );

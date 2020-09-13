@@ -19,6 +19,7 @@
 
 #include "BcViewer.h"
 #include "LjDisasm.h"
+#include "LuaJitComposer.h"
 #include <QHeaderView>
 #include <QFile>
 #include <QTextStream>
@@ -29,6 +30,14 @@ using namespace Lua;
 #define LINEAR
 
 enum { LnrType = 10 };
+
+static QString printRowCol( quint32 rowCol )
+{
+    if( JitComposer::isPacked(rowCol) )
+        return QString("%1:%2").arg(JitComposer::unpackRow(rowCol)).arg(JitComposer::unpackCol(rowCol));
+    else
+        return QString::number(rowCol);
+}
 
 BcViewer::BcViewer(QWidget *parent) : QTreeWidget(parent)
 {
@@ -134,8 +143,9 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
     fi->setFont(0,bold);
     if( !d_bc.isStripped() )
     {
-        fi->setText(2,QString::number(f.d_firstline));
-        fi->setText(3,QString::number(f.d_firstline+f.d_numline-1));
+        fi->setText(2,QString::number(JitComposer::unpackRow2(f.d_firstline)));
+        fi->setText(3,QString::number(JitComposer::unpackRow2(f.lastLine())));
+        fi->setData(2,Qt::UserRole,f.d_firstline);
     }
     if( f.d_flags & 0x02 )
         fi->setText(4,QString("%1+varg").arg(f.d_numparams));
@@ -179,8 +189,8 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
                 ci->setText(0,tr("function %1").arg(fp->d_id));
                 if( !d_bc.isStripped() )
                 {
-                    ci->setText(2,QString::number(fp->d_firstline));
-                    ci->setText(3,QString::number(fp->d_firstline+fp->d_numline-1));
+                    ci->setText(2,QString::number(JitComposer::unpackRow2(fp->d_firstline)));
+                    ci->setText(3,QString::number(JitComposer::unpackRow2(fp->lastLine())));
                 }
 #else
                 ci = addFunc(fp,t);
@@ -265,7 +275,7 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
             if( !f.d_lines.isEmpty() )
             {
                 Q_ASSERT( f.d_byteCodes.size() == f.d_lines.size() );
-                ci->setText(2,QString::number(f.d_lines[j]));
+                ci->setText(2,printRowCol(f.d_lines[j]));
             }
             if( bc.d_ta != JitBytecode::Instruction::Unused )
                 ci->setText(3,QString("%1(%2)").arg(JitBytecode::Instruction::s_typeName[bc.d_ta]).arg(bc.d_a));

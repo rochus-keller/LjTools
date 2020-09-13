@@ -186,7 +186,7 @@ int Engine2::_writeImp(lua_State *L, bool err) {
 Engine2::Engine2(QObject *p):QObject(p),
     d_ctx( 0 ), d_debugging( false ), d_running(false), d_waitForCommand(false),
     d_dbgCmd(RunToBreakPoint), d_defaultDbgCmd(RunToBreakPoint), d_activeLevel(0), d_dbgShell(0),
-    d_printToStdout(false), d_aliveSignal(false)
+    d_printToStdout(false), d_aliveSignal(false), d_byteCodeMode(false)
 {
     lua_State* ctx = lua_open();
 	if( ctx == 0 )
@@ -355,9 +355,9 @@ const char* Engine2::getVersion() const
 
 static int file_writer (lua_State *L, const void* b, size_t size, void* f) 
 {
-	Q_UNUSED(L);
-	int res = ::fwrite( b, size, 1, (FILE*)f );
-	if( res != 1 )
+    Q_UNUSED(L);
+    int res = ::fwrite( b, size, 1, (FILE*)f );
+    if( res != 1 )
 		return -1; // = error
 	return 0; // = no error
 }
@@ -577,6 +577,7 @@ void Engine2::setActiveLevel(int level)
 int Engine2::ErrHandler( lua_State* L )
 {
     // const char* msg = lua_tostring(L, 1 );
+    // This function leaves the error message just where it is
 
     Engine2* e = Engine2::getInst();
 
@@ -617,6 +618,7 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
             if( e->d_stepBreak.first == l.d_source &&
                     e->d_stepBreak.second.second.contains( l.d_line ) )
                 e->d_dbgCmd = Engine2::StepInto;
+            // TODO: this likely doesn't work as expected
         }
         return;
     }
@@ -680,6 +682,80 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         lua_pop(L, 1); // function
 }
 
+void Engine2::debugHook2(lua_State *L, lua_Debug *ar)
+{
+    Engine2* e = Engine2::getInst();
+    Q_ASSERT( e != 0 );
+
+    if( ar->event == LUA_HOOKRET )
+    {
+        // HOOKRET comes when still in the returning function; even the pc is still the same as the previous HOOKLINE
+        if( e->getCmd() == StepOut )
+        {
+            StackLevel l = e->getStackLevel(0,false,ar);
+            if( e->d_stepBreak.first.isEmpty() ||
+                    ( e->d_stepBreak.first == l.d_source &&
+                    e->d_stepBreak.second.first == l.d_lineDefined ) )
+                e->d_dbgCmd = Engine2::StepInto;
+        }
+        return;
+    }
+
+    if( /* e->d_aliveSignal && */ e->d_aliveCount > s_aliveCount / 2 && e->d_dbgShell )
+    {
+        // even if aliveSignal is not enabled it is necessary to give calculation time to the shell
+        // from time to time during long runs without breaks
+        e->d_dbgShell->handleAliveSignal( e );
+        e->d_aliveCount = 0;
+        if( e->isStepping() )
+        {
+            e->d_waitForCommand = true;
+            e->d_breakHit = true;
+            e->notify( LineHit, e->d_curScript, e->d_curLine );
+            if( e->d_dbgShell )
+                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            e->d_waitForCommand = false;
+            return;
+        }
+    }
+
+    e->d_aliveCount++;
+    // NOTE: ar->event might be useful for step out
+    StackLevel l = e->getStackLevel(0,false,ar);
+
+    e->d_breakHit = false;
+    e->d_curScript = l.d_source;
+    const quint32 linedefined = JitComposer::unpackRow2(l.d_lineDefined);
+    const quint32 packed = packDeflinePc( linedefined,l.d_line);
+    e->d_curLine = packed;
+    e->d_activeLevel = 0;
+
+    if( ( e->getCmd() == Engine2::StepInto ) ||
+        ( e->getCmd() == Engine2::StepOver && e->d_stepBreak.first == e->d_curScript &&
+                            e->d_stepBreak.second.first == l.d_lineDefined ) )
+    {
+        e->d_waitForCommand = true;
+        e->d_breakHit = true;
+        e->notify( LineHit, e->d_curScript, e->d_curLine );
+        if( e->d_dbgShell )
+            e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+        e->d_waitForCommand = false;
+    }else if( e->d_breaks.value( e->d_curScript ).contains( packed ) )
+    {
+        e->d_waitForCommand = true;
+        e->d_breakHit = true;
+        e->notify( BreakHit, e->d_curScript, e->d_curLine );
+        if( e->d_dbgShell )
+            e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+        e->d_waitForCommand = false;
+    }
+    if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
+    {
+        luaL_error( L, "Execution terminated by user" );
+    }
+    e->notify( Continued );
+}
+
 void Engine2::aliveSignal(lua_State* L, lua_Debug* ar)
 {
     Engine2* e = Engine2::getInst();
@@ -734,8 +810,12 @@ void Engine2::setDebug(bool on)
     if( d_debugging == on )
         return;
     if( on )
-        lua_sethook( d_ctx, debugHook, LUA_MASKLINE | LUA_MASKRET, 1);
-    else if( d_aliveSignal )
+    {
+        if( d_byteCodeMode )
+            lua_sethook( d_ctx, debugHook2, LUA_MASKCOUNT | LUA_MASKRET, 1);
+        else
+            lua_sethook( d_ctx, debugHook, LUA_MASKLINE | LUA_MASKRET, 1);
+    }else if( d_aliveSignal )
         lua_sethook( d_ctx, aliveSignal, LUA_MASKCOUNT, s_aliveCount); // get's a hook call with each bytecode op when 1
     else
         lua_sethook( d_ctx, debugHook, 0, 0);
@@ -757,19 +837,39 @@ void Engine2::setAliveSignal(bool on)
         lua_sethook( d_ctx, aliveSignal, 0, 0);
 }
 
+void Engine2::setBytecodeMode(bool on)
+{
+    if( d_debugging )
+        return;
+    d_byteCodeMode = on;
+}
+
 void Engine2::runToNextLine(DebugCommand where)
 {
     Q_ASSERT( where >= StepInto && where <= StepOut );
-    d_dbgCmd = where;
     if( where == StepOver || where == StepOut )
     {
-        StackLevel l = getStackLevel(0,true);
-        d_stepBreak.first = l.d_source;
-        d_stepBreak.second.second = l.d_lines;
-        d_stepBreak.second.first = l.d_line;
-        if( d_stepBreak.second.second.isEmpty() )
-            d_dbgCmd = StepInto;
+        StackLevel l = getStackLevel(0,!d_byteCodeMode);
+        if( l.d_inC && where == StepOver )
+            where = StepOut;
+        if( l.d_inC )
+            d_stepBreak.first.clear();
+        else
+            d_stepBreak.first = l.d_source;
+        if( !d_byteCodeMode )
+        {
+            d_stepBreak.second.first = l.d_line;
+            d_stepBreak.second.second = l.d_lines;
+            if( d_stepBreak.second.second.isEmpty() )
+                d_dbgCmd = StepInto;
+        }else
+        {
+            d_stepBreak.second.second.clear();
+            d_stepBreak.second.first = l.d_lineDefined;
+        }
+
     }
+    d_dbgCmd = where;
     d_waitForCommand = false;
 }
 
@@ -865,7 +965,22 @@ void Engine2::addBreak(const QByteArray &s, quint32 l)
 void Engine2::removeBreak(const QByteArray & s, quint32 l)
 {
 	d_breaks[s].remove( l );
-	notify( BreakPoints, s );
+    notify( BreakPoints, s );
+}
+
+quint32 Engine2::packDeflinePc(quint32 defline, quint16 pc)
+{
+    static const quint32 maxDefline = ( 1 << DEFLINE_BIT_LEN ) - 1;
+    static const quint32 maxPc = ( 1 << PC_BIT_LEN ) - 1;
+    Q_ASSERT( defline <= maxDefline && pc <= maxPc );
+    return ( defline << PC_BIT_LEN ) | pc;
+}
+
+QPair<quint32, quint16> Engine2::unpackDeflinePc(quint32 packed)
+{
+    const quint32 defline = packed >> PC_BIT_LEN;
+    const quint16 pc = packed & ( ( 1 << PC_BIT_LEN ) - 1 );
+    return qMakePair(defline,pc);
 }
 
 const Engine2::Breaks& Engine2::getBreaks(const QByteArray & s) const
@@ -910,10 +1025,10 @@ Engine2::StackLevels Engine2::getStackTrace() const
 
 Engine2::StackLevel Engine2::getStackLevel(quint16 level, bool withValidLines, lua_Debug* ar) const
 {
-    return getStackLevel( d_ctx, level, withValidLines, ar );
+    return getStackLevel( d_ctx, level, withValidLines, d_byteCodeMode, ar );
 }
 
-Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool withValidLines, lua_Debug* ar )
+Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool withValidLines, bool bytecodeMode, lua_Debug* ar )
 {
     StackLevel l;
     lua_Debug dbg;
@@ -927,7 +1042,12 @@ Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool wit
         }
         ar = &dbg;
     }
-    if( lua_getinfo(L, withValidLines ? "nlSL" : "nlS", ar ) == 0 )
+    QByteArray query;
+    if( bytecodeMode )
+        query = "nSp";
+    else
+        query = withValidLines ? "nlSL" : "nlS";
+    if( lua_getinfo(L, query.constData(), ar ) == 0 )
     {
         qCritical() << "Engine2::getStackLevel lua_getinfo error";
         l.d_valid = false;
@@ -935,10 +1055,14 @@ Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool wit
     }
 
     const char * what = ar->what;
-    const int curline = ar->currentline;
+    int curline = ar->currentline;
+    if( curline == -1 )
+        curline = 0;
     const bool inLua = *(what) == 'L' || *(what) == 'm';
     l.d_level = level;
-    l.d_line = !inLua ? 0 : JitComposer::unpackRow2(curline);
+    l.d_line = !inLua ? 0 : ( bytecodeMode ? curline : JitComposer::unpackRow2(curline) );
+    l.d_lineDefined = ar->linedefined;
+    l.d_lastLine = ar->lastlinedefined;
     l.d_what = ar->namewhat;
     l.d_name = ( ar->name ? ar->name : "" );
     l.d_source = *ar->source == '@' ? ar->source + 1 : ar->source;
@@ -954,7 +1078,8 @@ Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool wit
             while( lua_next(L, t) != 0 ) // not ordered!
             {
                 lua_pop(L, 1); // remove unused value
-                const quint32 line = JitComposer::unpackRow2(lua_tointeger(L, -1 ));
+                const quint32 line = bytecodeMode ?
+                            lua_tointeger(L, -1 ) : JitComposer::unpackRow2(lua_tointeger(L, -1 ));
                 l.d_lines.insert(line);
             }
             lua_pop(L, 2); // key and t
@@ -997,7 +1122,8 @@ static inline Engine2::LocalVar::Type luaToValType( int t )
     }
 }
 
-Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTableToLevel, int maxArrayIndex ) const
+Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTableToLevel,
+                                         int maxArrayIndex , bool includeTemps) const
 {
     LocalVars ls;
 
@@ -1014,6 +1140,12 @@ Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTable
         {
             v.d_type = luaToValType( lua_type( d_ctx, top ) );
             v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
+            ls << v;
+        }else if( includeTemps )
+        {
+            v.d_type = luaToValType( lua_type( d_ctx, top ) );
+            v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
+            v.d_name = "[" + QByteArray::number(n-1) + "]";
             ls << v;
         }
         lua_pop( d_ctx, 1 );
@@ -1035,6 +1167,12 @@ Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTable
             {
                 v.d_type = luaToValType( lua_type( d_ctx, top ) );
                 v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
+                ls << v;
+            }else if( includeTemps )
+            {
+                v.d_type = luaToValType( lua_type( d_ctx, top ) );
+                v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
+                v.d_name = "[" + QByteArray::number(n-1) + "]";
                 ls << v;
             }
             lua_pop( d_ctx, 1 );
@@ -1067,7 +1205,41 @@ void Engine2::removeAllBreaks(const QByteArray &s)
 
 void Engine2::print(const char * str)
 {
-	notify( Print, str );
+    notify( Print, str );
+}
+
+Engine2::ErrorMsg Engine2::decodeRuntimeMessage(const QByteArray& msg)
+{
+    ErrorMsg res;
+    const int rbrack = msg.indexOf(']'); // cannot directly search for ':' because Windows "C:/"
+    if( rbrack != -1 )
+    {
+        QByteArray path = msg.left(rbrack);
+        const int firstTick = path.indexOf('"');
+        if( firstTick != -1 )
+        {
+            const int secondTick = path.indexOf('"',firstTick+1);
+            path = path.mid(firstTick+1,secondTick-firstTick-1);
+            if( path == "string" )
+                path.clear();
+        }else
+            path.clear();
+        res.d_source = path;
+
+        const int firstColon = msg.indexOf(':', rbrack);
+        if( firstColon != -1 )
+        {
+            const int secondColon = msg.indexOf(':',firstColon + 1);
+            if( secondColon != -1 )
+            {
+                res.d_line = msg.mid(firstColon+1, secondColon - firstColon - 1 ).toInt(); // lua deliveres negative numbers
+                res.d_message = msg.mid(secondColon+1);
+            }
+        }else
+            res.d_message = msg.mid(rbrack+1);
+    }else
+        res.d_message = msg;
+    return res;
 }
 
 void Engine2::error(const char * str)

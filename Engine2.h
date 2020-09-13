@@ -59,16 +59,18 @@ namespace Lua
 		void addStdLibs();
         void setPrintToStdout(bool on) { d_printToStdout = on; }
 
-        typedef QSet<quint32> Breaks; // Zeile, zero-based
-        typedef QPair<QByteArray, QPair<quint32,QSet<quint32> > > Break; // filename -> prev line, valid line numbers
+        typedef QSet<quint32> Breaks;
         typedef QMap<QByteArray,Breaks> BreaksPerScript; // filename -> line numbers
+        typedef QPair<QByteArray, QPair<quint32,QSet<quint32> > > Break; // filename -> prev line, valid line numbers
 
 		// Debugging
+        enum { DEFLINE_BIT_LEN = 18, PC_BIT_LEN = 32 - DEFLINE_BIT_LEN }; // 250k Deflines, 16k PC
+        enum DebugCommand { StepInto, StepOver, StepOut, RunToBreakPoint, Abort, AbortSilently };
         void setDbgShell( DbgShell* ds ) { d_dbgShell = ds; }
 		void setDebug( bool on );
         void setAliveSignal( bool on );
+        void setBytecodeMode(bool on);
         bool isDebug() const { return d_debugging; }
-        enum DebugCommand { StepInto, StepOver, StepOut, RunToBreakPoint, Abort, AbortSilently };
         void runToNextLine(DebugCommand where = StepInto);
         void runToBreakPoint();
         static int TRAP( lua_State* L );
@@ -85,7 +87,9 @@ namespace Lua
 		bool isSilent() const { return d_dbgCmd == AbortSilently; }
         void removeAllBreaks( const QByteArray & = QByteArray() );
         void removeBreak( const QByteArray &, quint32 );
-        void addBreak( const QByteArray&, quint32 ); // inkl. : oder @ und one-based
+        static quint32 packDeflinePc(quint32 defline, quint16 pc );
+        static QPair<quint32,quint16> unpackDeflinePc(quint32);
+        void addBreak( const QByteArray&, quint32 l); // l is plain line numer, packed row/col, or packed defline/pc
         const Breaks& getBreaks( const QByteArray & ) const;
 		const QByteArray& getCurBinary() const { return d_curBinary; }
         struct StackLevel
@@ -94,11 +98,13 @@ namespace Lua
             bool d_inC;
             bool d_valid;
             QByteArray d_name;
+            quint32 d_lineDefined;
+            quint32 d_lastLine; // last pc when bytecode mode
             QByteArray d_what;
             QByteArray d_source;
-            quint32 d_line;
+            quint32 d_line; // cur pc when bytecode mode
             QSet<quint32> d_lines;
-            StackLevel():d_level(0),d_inC(false),d_valid(true),d_line(0){}
+            StackLevel():d_level(0),d_inC(false),d_valid(true),d_line(0),d_lineDefined(0),d_lastLine(0){}
         };
         typedef QList<StackLevel> StackLevels;
         StackLevels getStackTrace() const;
@@ -119,7 +125,8 @@ namespace Lua
             VarAddress(quint8 t = 0, const void* addr = 0):d_type(t),d_addr(addr){}
         };
         typedef QList<LocalVar> LocalVars;
-        LocalVars getLocalVars(bool includeUpvals = true, quint8 resolveTableToLevel = 0, int maxArrayIndex = 10) const;
+        LocalVars getLocalVars(bool includeUpvals = true, quint8 resolveTableToLevel = 0,
+                               int maxArrayIndex = 10, bool includeTemps = false) const;
 
 		static Engine2* getInst();
 		static void setInst( Engine2* );
@@ -155,6 +162,15 @@ namespace Lua
 		void error( const char* );
 		void print( const char* );
 
+        struct ErrorMsg {
+            QByteArray d_source;
+            quint32 d_line; // line=0 invalid
+            QByteArray d_message;
+            ErrorMsg():d_line(0){}
+            bool isEmpty() const { return d_source.isEmpty() && d_message.isEmpty() && d_line == 0; }
+        };
+        static ErrorMsg decodeRuntimeMessage( const QByteArray& );
+
 		enum MessageType {
             Print,		// Ausgaben von print(), String mit \n
             Error,		// Ausgaben von _ALERT , String mit \n
@@ -184,8 +200,9 @@ namespace Lua
 	protected:
 		virtual void notify( MessageType messageType, const QByteArray& val1 = "", int val2 = 0 );
     private:
-        static StackLevel getStackLevel(lua_State *L, quint16 level, bool withValidLines, lua_Debug* ar);
+        static StackLevel getStackLevel(lua_State *L, quint16 level, bool withValidLines, bool bytecodeMode, lua_Debug* ar);
         static void debugHook(lua_State *L, lua_Debug *ar);
+        static void debugHook2(lua_State *L, lua_Debug *ar);
         static void aliveSignal(lua_State *L, lua_Debug *ar);
         static int ErrHandler( lua_State* L );
         void notifyStart();
@@ -214,6 +231,7 @@ namespace Lua
         bool d_running;
         bool d_waitForCommand;
         bool d_printToStdout;
+        bool d_byteCodeMode; // default off = source line mode
 	};
 }
 

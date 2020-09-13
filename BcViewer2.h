@@ -32,11 +32,26 @@ namespace Lua
         Q_OBJECT
     public:
         explicit BcViewer2(QWidget *parent = 0);
-        bool loadFrom( const QString& );
+        bool loadFrom( const QString&, const QString& source = QString() );
         bool loadFrom( QIODevice*, const QString& path = QString() );
         void gotoLine(quint32);
+        void gotoFuncPc(quint32 func, quint32 pc, bool center, bool setMarker); // pc is one-based
+        void clearMarker();
         bool saveTo( const QString&, bool stripped = false );
         void clear();
+        void setLastWidth(int w) { d_lastWidth = w; }
+        const QString& getPath() const { return d_path; }
+
+        bool addBreakPoint( quint32 );
+        bool removeBreakPoint( quint32 );
+        struct Breakpoint
+        {
+            quint32 d_linePc;
+            bool d_on;
+        };
+        bool toggleBreakPoint(Breakpoint* out = 0); // current line
+        void clearBreakPoints();
+        const QSet<quint32>& getBreakPoints() const { return d_breakPoints; }
     signals:
         void sigGotoLine(quint32 lnr);
     protected slots:
@@ -44,11 +59,17 @@ namespace Lua
         void onSelectionChanged();
     protected:
         QTreeWidgetItem* addFunc( const JitBytecode::Function*, QTreeWidgetItem* p = 0 );
+        QTreeWidgetItem* findItem( quint32 func, quint16 pc ) const;
         void fillTree();
     private:
+        QString d_path;
         JitBytecode d_bc;
         typedef QMap<quint32,QList<QTreeWidgetItem*> > Items;
         Items d_items;
+        QHash<quint32,QTreeWidgetItem*> d_funcs;
+        QTreeWidgetItem* d_lastMarker;
+        QSet<quint32> d_breakPoints;
+        int d_lastWidth;
         bool d_lock;
     };
 }

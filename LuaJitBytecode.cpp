@@ -603,15 +603,10 @@ JitBytecode::Instruction::FieldType JitBytecode::typeAFromOp(quint8 op)
 
 bool JitBytecode::parseHeader(QIODevice* in)
 {
-    QByteArray buf = in->read(4);
-    if( buf.size() < 4 )
-        return error("file too short, invalid header");
-
-    if( buf[0] != char(BCDUMP_HEAD1) || buf[1] != char(BCDUMP_HEAD2) || buf[2] != char(BCDUMP_HEAD3) )
-        return error("invalid header format");
-
-    if( buf[3] != char(BCDUMP_VERSION) )
-        return error("wrong version");
+    const QByteArray buf = in->read(4);
+    const QString err = checkFileHeader(buf);
+    if( !err.isEmpty() )
+        return error(err);
 
     d_flags = bcread_uleb128(in);
 
@@ -772,7 +767,7 @@ QByteArray JitBytecode::writeDbgInfo(JitBytecode::Function* f)
         {
             len = f->d_lines[i] == 0 ? 0 : f->d_lines[i] - f->d_firstline;
             if( len >= 256 )
-                qWarning() << "line number overflow at" << f->d_sourceFile << f->d_lines[i];
+                qWarning() << "1 byte line number overflow at" << f->d_sourceFile << f->d_lines[i] << len;
             tmp = len;
             writeByte( &buf, tmp );
         }
@@ -785,7 +780,7 @@ QByteArray JitBytecode::writeDbgInfo(JitBytecode::Function* f)
         {
             len = f->d_lines[i] == 0 ? 0 : f->d_lines[i] - f->d_firstline;
             if( len >= 65536 )
-                qWarning() << "line number overflow at" << f->d_sourceFile << f->d_lines[i];
+                qWarning() << "2 byte line number overflow at" << f->d_sourceFile << f->d_lines[i] << len;
             tmp = len;
             memcpy( b, &tmp, sizeof(tmp) );
             buf.write(b,sizeof(tmp));
@@ -1089,6 +1084,19 @@ const char*JitBytecode::nameOfOp(int op)
         return "???";
     const _ByteCode& bc = s_byteCodes[op];
     return bc.d_op;
+}
+
+QString JitBytecode::checkFileHeader(const QByteArray& buf)
+{
+    if( buf.size() < 4 )
+        return "file too short, invalid header";
+
+    if( buf[0] != char(BCDUMP_HEAD1) || buf[1] != char(BCDUMP_HEAD2) || buf[2] != char(BCDUMP_HEAD3) )
+        return "invalid header format";
+
+    if( buf[3] != char(BCDUMP_VERSION) )
+        return "wrong version";
+    return "";
 }
 
 const JitBytecode::Function::Var* JitBytecode::Function::findVar(int pc, int slot, int* idx) const
