@@ -611,14 +611,16 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
 
     if( ar->event == LUA_HOOKRET )
     {
-        // HOOKRET of a given line comes after its HOOKLINE
-        if( e->getCmd() == StepOver || e->getCmd() == StepOut )
+        // HOOKRET comes when still in the returning function; even the pc is still the same as the previous HOOKLINE
+        if( e->getCmd() == StepOut || e->getCmd() == StepOver )
         {
             StackLevel l = e->getStackLevel(0,false,ar);
-            if( e->d_stepBreak.first == l.d_source &&
-                    e->d_stepBreak.second.second.contains( l.d_line ) )
-                e->d_dbgCmd = Engine2::StepInto;
-            // TODO: this likely doesn't work as expected
+            if( e->d_stepBreak.first.isEmpty() ||
+                    ( e->d_stepBreak.first == l.d_source &&
+                    e->d_stepBreak.second == l.d_lineDefined ) )
+                e->d_dbgCmd = Engine2::StepNext;
+            // StepOut to StepNext if we leave the function in which StepOut was called
+            // StepOver to StepNext if we're about to jump out of the function where StepOver was called
         }
         return;
     }
@@ -642,21 +644,23 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
     }
 
     e->d_aliveCount++;
-    // NOTE: ar->event might be useful for step out
+
     StackLevel l = e->getStackLevel(0,false,ar);
-    const quint32 newLineNr = l.d_line;
-    const bool lineChanged = ( e->d_curLine != newLineNr || e->d_curScript != l.d_source );
-    if( lineChanged )
+    const bool lineChanged = ( e->d_curLine != l.d_line || e->d_curScript != l.d_source );
+
+    if( e->d_byteCodeMode || lineChanged )
     {
         e->d_breakHit = false;
         e->d_curScript = l.d_source;
-        e->d_curLine = newLineNr;
+        if( e->d_byteCodeMode )
+            e->d_curLine = packDeflinePc( JitComposer::unpackRow2(l.d_lineDefined),l.d_line);
+        else
+            e->d_curLine = l.d_line;
         e->d_activeLevel = 0;
 
-        if( ( e->getCmd() == Engine2::StepInto ) ||
+        if( ( e->getCmd() == Engine2::StepNext ) ||
             ( e->getCmd() == Engine2::StepOver && e->d_stepBreak.first == e->d_curScript &&
-                                e->d_stepBreak.second.first != e->d_curLine &&
-                                  e->d_stepBreak.second.second.contains( e->d_curLine ) ) )
+                                e->d_stepBreak.second == l.d_lineDefined ) )
         {
             e->d_waitForCommand = true;
             e->d_breakHit = true;
@@ -668,92 +672,18 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         {
             e->d_waitForCommand = true;
             e->d_breakHit = true;
-			e->notify( BreakHit, e->d_curScript, e->d_curLine );
+            e->notify( BreakHit, e->d_curScript, e->d_curLine );
             if( e->d_dbgShell )
                 e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
             e->d_waitForCommand = false;
         }
-		if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
+        if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         {
             luaL_error( L, "Execution terminated by user" );
         }
-		e->notify( Continued );
+        e->notify( Continued );
     }else
         lua_pop(L, 1); // function
-}
-
-void Engine2::debugHook2(lua_State *L, lua_Debug *ar)
-{
-    Engine2* e = Engine2::getInst();
-    Q_ASSERT( e != 0 );
-
-    if( ar->event == LUA_HOOKRET )
-    {
-        // HOOKRET comes when still in the returning function; even the pc is still the same as the previous HOOKLINE
-        if( e->getCmd() == StepOut )
-        {
-            StackLevel l = e->getStackLevel(0,false,ar);
-            if( e->d_stepBreak.first.isEmpty() ||
-                    ( e->d_stepBreak.first == l.d_source &&
-                    e->d_stepBreak.second.first == l.d_lineDefined ) )
-                e->d_dbgCmd = Engine2::StepInto;
-        }
-        return;
-    }
-
-    if( /* e->d_aliveSignal && */ e->d_aliveCount > s_aliveCount / 2 && e->d_dbgShell )
-    {
-        // even if aliveSignal is not enabled it is necessary to give calculation time to the shell
-        // from time to time during long runs without breaks
-        e->d_dbgShell->handleAliveSignal( e );
-        e->d_aliveCount = 0;
-        if( e->isStepping() )
-        {
-            e->d_waitForCommand = true;
-            e->d_breakHit = true;
-            e->notify( LineHit, e->d_curScript, e->d_curLine );
-            if( e->d_dbgShell )
-                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
-            e->d_waitForCommand = false;
-            return;
-        }
-    }
-
-    e->d_aliveCount++;
-    // NOTE: ar->event might be useful for step out
-    StackLevel l = e->getStackLevel(0,false,ar);
-
-    e->d_breakHit = false;
-    e->d_curScript = l.d_source;
-    const quint32 linedefined = JitComposer::unpackRow2(l.d_lineDefined);
-    const quint32 packed = packDeflinePc( linedefined,l.d_line);
-    e->d_curLine = packed;
-    e->d_activeLevel = 0;
-
-    if( ( e->getCmd() == Engine2::StepInto ) ||
-        ( e->getCmd() == Engine2::StepOver && e->d_stepBreak.first == e->d_curScript &&
-                            e->d_stepBreak.second.first == l.d_lineDefined ) )
-    {
-        e->d_waitForCommand = true;
-        e->d_breakHit = true;
-        e->notify( LineHit, e->d_curScript, e->d_curLine );
-        if( e->d_dbgShell )
-            e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
-        e->d_waitForCommand = false;
-    }else if( e->d_breaks.value( e->d_curScript ).contains( packed ) )
-    {
-        e->d_waitForCommand = true;
-        e->d_breakHit = true;
-        e->notify( BreakHit, e->d_curScript, e->d_curLine );
-        if( e->d_dbgShell )
-            e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
-        e->d_waitForCommand = false;
-    }
-    if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
-    {
-        luaL_error( L, "Execution terminated by user" );
-    }
-    e->notify( Continued );
 }
 
 void Engine2::aliveSignal(lua_State* L, lua_Debug* ar)
@@ -812,7 +742,7 @@ void Engine2::setDebug(bool on)
     if( on )
     {
         if( d_byteCodeMode )
-            lua_sethook( d_ctx, debugHook2, LUA_MASKCOUNT | LUA_MASKRET, 1);
+            lua_sethook( d_ctx, debugHook, LUA_MASKCOUNT | LUA_MASKRET, 1);
         else
             lua_sethook( d_ctx, debugHook, LUA_MASKLINE | LUA_MASKRET, 1);
     }else if( d_aliveSignal )
@@ -846,28 +776,17 @@ void Engine2::setBytecodeMode(bool on)
 
 void Engine2::runToNextLine(DebugCommand where)
 {
-    Q_ASSERT( where >= StepInto && where <= StepOut );
+    Q_ASSERT( where >= StepNext && where <= StepOut );
     if( where == StepOver || where == StepOut )
     {
-        StackLevel l = getStackLevel(0,!d_byteCodeMode);
+        StackLevel l = getStackLevel(0,false);
         if( l.d_inC && where == StepOver )
             where = StepOut;
         if( l.d_inC )
             d_stepBreak.first.clear();
         else
             d_stepBreak.first = l.d_source;
-        if( !d_byteCodeMode )
-        {
-            d_stepBreak.second.first = l.d_line;
-            d_stepBreak.second.second = l.d_lines;
-            if( d_stepBreak.second.second.isEmpty() )
-                d_dbgCmd = StepInto;
-        }else
-        {
-            d_stepBreak.second.second.clear();
-            d_stepBreak.second.first = l.d_lineDefined;
-        }
-
+        d_stepBreak.second = l.d_lineDefined;
     }
     d_dbgCmd = where;
     d_waitForCommand = false;

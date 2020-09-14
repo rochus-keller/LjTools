@@ -1294,7 +1294,7 @@ void BcDebugger::onStepInto()
     {
         d_lua->setDebug(true);
         enableDbgMenu();
-        d_lua->setDefaultCmd(Engine2::StepInto);
+        d_lua->setDefaultCmd(Engine2::StepNext);
         onRun();
     }else
         d_lua->runToNextLine();

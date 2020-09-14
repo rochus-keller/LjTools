@@ -61,17 +61,17 @@ namespace Lua
 
         typedef QSet<quint32> Breaks;
         typedef QMap<QByteArray,Breaks> BreaksPerScript; // filename -> line numbers
-        typedef QPair<QByteArray, QPair<quint32,QSet<quint32> > > Break; // filename -> prev line, valid line numbers
+        typedef QPair<QByteArray,quint32> Break; // filename -> method firstline
 
 		// Debugging
         enum { DEFLINE_BIT_LEN = 18, PC_BIT_LEN = 32 - DEFLINE_BIT_LEN }; // 250k Deflines, 16k PC
-        enum DebugCommand { StepInto, StepOver, StepOut, RunToBreakPoint, Abort, AbortSilently };
+        enum DebugCommand { StepNext /* previously StepInto */, StepOver, StepOut, RunToBreakPoint, Abort, AbortSilently };
         void setDbgShell( DbgShell* ds ) { d_dbgShell = ds; }
 		void setDebug( bool on );
         void setAliveSignal( bool on );
         void setBytecodeMode(bool on);
         bool isDebug() const { return d_debugging; }
-        void runToNextLine(DebugCommand where = StepInto);
+        void runToNextLine(DebugCommand where = StepNext);
         void runToBreakPoint();
         static int TRAP( lua_State* L );
         static int TRACE( lua_State* L );
@@ -80,7 +80,7 @@ namespace Lua
         DebugCommand getDefaultCmd() const { return d_defaultDbgCmd; }
         void terminate(bool silent = false);
         DebugCommand getCmd() const { return d_dbgCmd; }
-        bool isStepping() const { return d_dbgCmd == StepInto || d_dbgCmd == StepOver || d_dbgCmd == StepOut; }
+        bool isStepping() const { return d_dbgCmd == StepNext || d_dbgCmd == StepOver || d_dbgCmd == StepOut; }
         bool isWaiting() const { return d_waitForCommand; }
         bool isBreakHit() const { return d_breakHit; }
         bool isAborted() const { return d_dbgCmd == AbortSilently || d_dbgCmd == Abort; }
@@ -202,7 +202,6 @@ namespace Lua
     private:
         static StackLevel getStackLevel(lua_State *L, quint16 level, bool withValidLines, bool bytecodeMode, lua_Debug* ar);
         static void debugHook(lua_State *L, lua_Debug *ar);
-        static void debugHook2(lua_State *L, lua_Debug *ar);
         static void aliveSignal(lua_State *L, lua_Debug *ar);
         static int ErrHandler( lua_State* L );
         void notifyStart();
