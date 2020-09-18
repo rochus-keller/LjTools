@@ -34,7 +34,7 @@ namespace Lua
 	public:
 		void paste();
 		void clear();
-        bool setSpecialInterpreter(bool on) { d_specialInterpreter = on; }
+        void setSpecialInterpreter(bool on) { d_specialInterpreter = on; }
 		Terminal2(QWidget*, Engine2 * = 0);
         virtual ~Terminal2();
     public slots:

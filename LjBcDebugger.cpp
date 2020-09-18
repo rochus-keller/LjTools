@@ -325,6 +325,7 @@ bool BcDebugger::initializeFromFiles(const Files& files, const QString& workingD
     d_runCmd = run;
     d_workingDir = workingDir;
     fillMods();
+    return true;
 }
 
 void BcDebugger::closeEvent(QCloseEvent* event)

@@ -1193,7 +1193,7 @@ QByteArray Engine2::getTypeName(int arg) const
 
 static QByteArray _toHex(const void *p)
 {
-    return "0x" + QByteArray::number((quint64)p, 16 ); // table, thread, function, userdata
+    return "0x" + QByteArray::number((quintptr)p, 16 ); // table, thread, function, userdata
 }
 
 QByteArray Engine2::getValueString(int arg, bool showAddress ) const
