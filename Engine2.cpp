@@ -468,16 +468,24 @@ bool Engine2::runFunction(int nargs, int nresults)
 	notifyStart();
 
     // Lua: All arguments and the function value are popped from the stack when the function is called.
-    const int err = lua_pcall( d_ctx, nargs, nresults, errf );
+    int err = lua_pcall( d_ctx, nargs, nresults, errf );
     switch( err )
     {
     case LUA_ERRRUN:
-        d_lastError = lua_tostring( d_ctx, -1 );
-        lua_pop( d_ctx, 1 );  /* remove error message */
-        lua_pop( d_ctx, 1 ); // remove ErrHandler
-        nresults = 0;
-        notifyEnd();
-        return false;
+        if( d_dbgCmd != AbortSilently)
+        {
+            if( d_dbgCmd == Abort )
+                d_lastError = "Execution terminated by user";
+            else
+                d_lastError = lua_tostring( d_ctx, -1 );
+            lua_pop( d_ctx, 1 );  /* remove error message */
+            lua_pop( d_ctx, 1 ); // remove ErrHandler
+            nresults = 0;
+            notifyEnd();
+            return false;
+        }//else
+        err = 0;
+        break;
     case LUA_ERRMEM:
         d_lastError = "Lua memory exception";
         notifyEnd();
@@ -679,7 +687,8 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         }
         if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         {
-            luaL_error( L, "Execution terminated by user" );
+            lua_pushnil(L);
+            lua_error(L);
         }
         e->notify( Continued );
     }else
@@ -748,7 +757,7 @@ void Engine2::setDebug(bool on)
     }else if( d_aliveSignal )
         lua_sethook( d_ctx, aliveSignal, LUA_MASKCOUNT, s_aliveCount); // get's a hook call with each bytecode op when 1
     else
-        lua_sethook( d_ctx, debugHook, 0, 0);
+        lua_sethook( d_ctx, 0, 0, 0);
     d_debugging = on;
 
 }
@@ -852,13 +861,14 @@ int Engine2::ABORT(lua_State* L)
 {
     Engine2* e = Engine2::getInst();
     e->terminate(true);
+    if( lua_gettop(L) == 0 )
+        lua_pushnil(L);
+    lua_error(L);
     return 0;
 }
 
 void Engine2::terminate(bool silent)
 {
-    if( !isDebug() )
-        setDebug(true);
 	d_dbgCmd = (silent)?AbortSilently:Abort;
     d_waitForCommand = false;
 }
@@ -1232,6 +1242,17 @@ QByteArray Engine2::getValueString(int arg, bool showAddress ) const
     return QByteArray();
 }
 
+static inline const void* metapointer( lua_State *L, int idx )
+{
+    if( lua_getmetatable( L, idx ) )
+    {
+        const void* res = lua_topointer(L,-1);
+        lua_pop(L,1);
+        return res;
+    }else
+        return 0;
+}
+
 QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayIndex ) const
 {
     const int t = lua_type( d_ctx, arg );
@@ -1248,7 +1269,8 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
         {
             QVariantMap vals;
             Q_ASSERT( arg >= 0 );
-            vals.insert(QString(),QVariant::fromValue(VarAddress(luaToValType(t), lua_topointer(d_ctx,arg))));
+            vals.insert(QString(),QVariant::fromValue(
+                            VarAddress(LocalVar::TABLE, lua_topointer(d_ctx,arg), metapointer(d_ctx,arg) )));
             const int w = ::log10(maxArrayIndex)+1;
             lua_pushnil(d_ctx);  /* first key */
             while( lua_next(d_ctx, arg) != 0 )
@@ -1275,7 +1297,7 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             }
             return vals;
         }else
-            return QVariant::fromValue(VarAddress(LocalVar::TABLE, lua_topointer(d_ctx,arg) ) );
+            return QVariant::fromValue(VarAddress(LocalVar::TABLE, lua_topointer(d_ctx,arg), metapointer(d_ctx,arg) ) );
         break;
     case LUA_TUSERDATA:
     default:
@@ -1285,7 +1307,7 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             lua_pop(d_ctx,1);
             return str;
         }// else
-        return QVariant::fromValue(VarAddress(luaToValType(t), lua_topointer(d_ctx,arg) ));
+        return QVariant::fromValue(VarAddress(luaToValType(t), lua_topointer(d_ctx,arg), metapointer(d_ctx,arg) ));
     }
     return QVariant();
 }

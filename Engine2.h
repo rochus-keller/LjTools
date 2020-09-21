@@ -121,8 +121,9 @@ namespace Lua
         struct VarAddress
         {
             const void* d_addr;
-            quint8 d_type;
-            VarAddress(quint8 t = 0, const void* addr = 0):d_type(t),d_addr(addr){}
+            const void* d_meta;
+            quint8 d_type; // LocalVar::Type
+            VarAddress(quint8 t = 0, const void* addr = 0, const void* meta = 0):d_type(t),d_addr(addr),d_meta(meta){}
         };
         typedef QList<LocalVar> LocalVars;
         LocalVars getLocalVars(bool includeUpvals = true, quint8 resolveTableToLevel = 0,

@@ -1076,7 +1076,12 @@ static void typeAddr( QTreeWidgetItem* item, const QVariant& val )
     {
         Lua::Engine2::VarAddress addr = val.value<Lua::Engine2::VarAddress>();
         if( addr.d_addr )
-            item->setToolTip(1, QString("address 0x%1").arg(quint32(addr.d_addr),8,16,QChar('0'))); // RISK
+        {
+            QString str = QString("address 0x%1").arg(quintptr(addr.d_addr),8,16,QChar('0'));
+            if( addr.d_meta )
+                str += QString(" metatable 0x%1").arg(quintptr(addr.d_meta),8,16,QChar('0'));
+            item->setToolTip(1, str);
+        }
         switch( addr.d_type )
         {
         case Engine2::LocalVar::NIL:
