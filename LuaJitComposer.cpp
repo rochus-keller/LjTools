@@ -190,6 +190,12 @@ bool JitComposer::patch(quint32 pc, qint16 off)
     return false;
 }
 
+bool JitComposer::jumpToLoop(quint32 loopLabel, JitComposer::SlotNr base, quint32 line)
+{
+    JMP(base, loopLabel - getCurPc() - 2, line );
+    return patch( loopLabel, getCurPc() - loopLabel -1 );
+}
+
 bool JitComposer::ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line)
 {
     if( JitBytecode::isNumber(lhs) )

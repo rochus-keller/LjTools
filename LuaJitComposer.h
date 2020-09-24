@@ -81,6 +81,7 @@ namespace Lua
         int getCurPc() const;
         bool patch( quint32 pc, qint16 off ); // pc points to a jump, off is the new offset for the jump
         bool patch( quint32 label ) { return patch( label, getCurPc() - label ); }
+        bool jumpToLoop( quint32 loopLabel, SlotNr base , quint32 line = 0 );
 
         bool ADD(SlotNr dst, const QVariant& lhs, SlotNr rhs, quint32 line = 0 );
         bool ADD(SlotNr dst, SlotNr lhs, const QVariant& rhs, quint32 line = 0 );

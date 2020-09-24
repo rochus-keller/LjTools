@@ -183,6 +183,30 @@ int Engine2::_writeImp(lua_State *L, bool err) {
     return 0;
 }
 
+int Engine2::_prettyTraceLoc(lua_State* L)
+{
+    const QByteArray loc = lua_tostring( L, 1 );
+    const QByteArray source = lua_tostring( L, 2 );
+    //const int linedefined = lua_tointeger( L, 3 );
+    const int colon = loc.lastIndexOf(':');
+    if( colon == -1 )
+        lua_pushvalue(L,1);
+    else
+    {
+        const int line = loc.mid(colon+1).toInt();
+        QByteArray res = loc.left(colon+1);
+        if( res.startsWith("0x") && !source.isEmpty() )
+            res = QFileInfo(source).fileName().toUtf8() + ":"; // rhs is already linedefined
+        if( JitComposer::isPacked(line) )
+            res +=  QByteArray::number( JitComposer::unpackRow(line) ) + ":"
+                    + QByteArray::number( JitComposer::unpackCol(line) );
+        else
+            res += QByteArray::number(line);
+        lua_pushstring( L, res.constData() );
+    }
+    return 1;
+}
+
 Engine2::Engine2(QObject *p):QObject(p),
     d_ctx( 0 ), d_debugging( false ), d_running(false), d_waitForCommand(false),
     d_dbgCmd(RunToBreakPoint), d_defaultDbgCmd(RunToBreakPoint), d_activeLevel(0), d_dbgShell(0),
@@ -204,6 +228,8 @@ Engine2::Engine2(QObject *p):QObject(p),
 #endif
     lua_pushcfunction( ctx, dbgout );
     lua_setglobal( ctx, "dbgout" );
+    lua_pushcfunction( ctx, _prettyTraceLoc );
+    lua_setglobal( ctx, "_prettyTraceLoc" );
 }
 
 Engine2::~Engine2()

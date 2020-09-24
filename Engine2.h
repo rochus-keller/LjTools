@@ -211,6 +211,7 @@ namespace Lua
         static int _writeStdout(lua_State *L);
         static int _writeStderr(lua_State *L);
         static int _writeImp(lua_State *L, bool err);
+        static int _prettyTraceLoc(lua_State *L);
 
 		BreaksPerScript d_breaks;
         Break d_stepBreak;
