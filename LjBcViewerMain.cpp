@@ -81,6 +81,7 @@ MainWindow::MainWindow(QWidget *parent)
     d_lua->addLibrary(Engine2::BIT);
     d_lua->addLibrary(Engine2::JIT);
     d_lua->addLibrary(Engine2::OS);
+    d_lua->addLibrary(Engine2::FFI);
     Engine2::setInst(d_lua);
 
     d_eng = new JitEngine(this);

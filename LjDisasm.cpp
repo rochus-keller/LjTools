@@ -754,7 +754,7 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
                 quali = "F" + QByteArray::number(up.second->d_id) + ".";
 //            if( v < f->d_upNames.size() )
 //                return quali + f->d_upNames[v];
-            if( up.first < up.second->d_varNames.size() && !stripped )
+            if( !stripped && up.first < up.second->d_varNames.size() && !up.second->d_varNames[up.first].isEmpty() )
                 return quali + up.second->d_varNames[up.first];
             else
             {

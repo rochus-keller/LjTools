@@ -36,7 +36,8 @@ SOURCES += LjBcViewerMain.cpp \
     BcViewer2.cpp \
     LuaJitEngine.cpp \
     LuaJitComposer.cpp \
-    LjDisasm.cpp
+    LjDisasm.cpp \
+    TestFfi.cpp
 
 HEADERS  += LjBcViewerMain.h \
     ../GuiTools/CodeEditor.h \
@@ -55,6 +56,11 @@ include( ../LuaJIT/src/LuaJit.pri ){
     LIBS += -ldl
 } else {
     LIBS += -lluajit
+}
+
+linux {
+    QMAKE_LFLAGS += -rdynamic
+    #rdynamic is required so that the LibFfi functions are visible to LuaJIT FFI
 }
 
 include( ../GuiTools/Menu.pri )

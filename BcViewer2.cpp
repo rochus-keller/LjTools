@@ -294,12 +294,12 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
     if( !d_bc.isStripped() )
     {
         const quint32 line = JitComposer::unpackRow2(f.d_firstline);
-        fi->setText(2,QString::number(line));
-        fi->setText(3,QString::number(JitComposer::unpackRow2(f.lastLine())));
+        fi->setText(2,printRowCol(f.d_firstline));
+        fi->setText(3,printRowCol(f.lastLine()));
         fi->setData(2,Qt::UserRole,f.d_firstline);
         fi->setData(0,Qt::UserRole,line);
         d_items[line].append(fi);
-        d_funcs[line] = fi;
+        d_funcs[f.d_firstline] = fi;
     }
     if( f.d_flags & 0x02 )
         fi->setText(4,QString("%1+varg").arg(f.d_numparams));
@@ -320,16 +320,18 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
             const quint16 up = f.getUpval(j);
             // an upvalue points into the upvalue or the var list of the function where FNEW is executed
             QString options;
-            if( f.isLocalUpval(j) )
+            const bool isLocal = f.isLocalUpval(j) ;
+            if( isLocal )
                 options += "loc ";
             if( f.isImmutableUpval(j) )
                 options += "ro";
-            if( j < f.d_upNames.size() )
-            {
-                Q_ASSERT( f.d_upNames.size() == f.d_upvals.size() );
-                ci->setText(0,QString("%1 (%2) %3").arg(f.d_upNames[j].constData()).arg(up).arg(options));
-            }else
-                ci->setText(0,QString("%1 %2").arg(up).arg(options));
+            QString name;
+            if( !f.d_upNames.isEmpty() && j < f.d_upNames.size() && !f.d_upNames[j].isEmpty() )
+                name = f.d_upNames[j] + " ";
+            if( isLocal )
+                ci->setText(0,QString("%1[%2] %3").arg(name).arg(up).arg(options));
+            else
+                ci->setText(0,QString("%1(%2) %3").arg(name).arg(up).arg(options));
             ci->setText(1,QString::number(j));
         }
     }
@@ -388,7 +390,22 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
 
 QTreeWidgetItem*BcViewer2::findItem(quint32 func, quint16 pc) const
 {
-    QTreeWidgetItem* item = d_funcs.value(JitComposer::unpackRow2(func));
+    QTreeWidgetItem* item = 0;
+
+    if( JitComposer::isPacked(func) )
+        item = d_funcs.value(func);
+    else
+    {
+        QList<QTreeWidgetItem*> res = d_items.value(func);
+        for( int i = 0; i < res.size(); i++ )
+        {
+            if( res[i]->type() == FuncType )
+            {
+                item = res[i];
+                break;
+            }
+        }
+    }
     if( item == 0 )
         return 0;
     QTreeWidgetItem* found = 0;

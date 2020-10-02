@@ -569,8 +569,6 @@ void JitComposer::setUpvals(const JitComposer::UpvalList& l)
 {
     if( d_bc.d_fstack.isEmpty() )
         return;
-    if( !d_hasDebugInfo )
-        qWarning() << "JitComposer::setUpvals: not expecting debug info";
     Func* f = static_cast<Func*>( d_bc.d_fstack.back().data() );
     foreach( const Upval& uv, l )
     {
@@ -580,7 +578,7 @@ void JitComposer::setUpvals(const JitComposer::UpvalList& l)
         if( uv.d_isRo )
             tmp |= JitBytecode::Function::UvImmutableMask;
         f->d_upvals << tmp;
-        if( !uv.d_name.isEmpty() )
+        if( d_hasDebugInfo )
             f->d_upNames << uv.d_name;
     }
 }

@@ -1091,12 +1091,12 @@ Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTable
         const int top = lua_gettop(d_ctx);
         LocalVar v;
         v.d_name = name;
-        if( !v.d_name.startsWith('(') )
+        if( !v.d_name.startsWith('(') && !v.d_name.isEmpty() )
         {
             v.d_type = luaToValType( lua_type( d_ctx, top ) );
             v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
             ls << v;
-        }else if( includeTemps )
+        }else if( includeTemps || v.d_name.isEmpty() )
         {
             v.d_type = luaToValType( lua_type( d_ctx, top ) );
             v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
@@ -1118,16 +1118,16 @@ Engine2::LocalVars Engine2::getLocalVars(bool includeUpvals, quint8 resolveTable
             LocalVar v;
             v.d_name = name;
             v.d_isUv = true;
-            if( !v.d_name.startsWith('(') )
+            if( !v.d_name.startsWith('(') && !v.d_name.isEmpty() )
             {
                 v.d_type = luaToValType( lua_type( d_ctx, top ) );
                 v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
                 ls << v;
-            }else if( includeTemps )
+            }else if( includeTemps || v.d_name.isEmpty() )
             {
                 v.d_type = luaToValType( lua_type( d_ctx, top ) );
                 v.d_value = getValue( top, resolveTableToLevel, maxArrayIndex );
-                v.d_name = "[" + QByteArray::number(n-1) + "]";
+                v.d_name = "(" + QByteArray::number(n-1) + ")";
                 ls << v;
             }
             lua_pop( d_ctx, 1 );
