@@ -1124,7 +1124,7 @@ static void setLocalText( QTreeWidgetItem* local, const QVariant& val )
             }else if( d - double(i) == 0.0 )
             {
                 local->setToolTip(1, QString("%1 0x%2").arg(i).arg(i,0,16));
-                local->setText(1, QString::number( quint32(d) ) );
+                local->setText(1, QString::number( qint32(d) ) );
             }else
             {
                 local->setText(1, val.toString() );
