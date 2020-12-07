@@ -335,6 +335,8 @@ void AsmEditor::loadFile(const QString& path, bool stripped )
             d_bcv->loadFrom(&in,path);
         }else
         {
+            logMessage( tr("reading as binary format was not successful (%1), try to read as source code").arg(err),true );
+
             // Lua source file
             QDir dir( QStandardPaths::writableLocation(QStandardPaths::TempLocation) );
             const QString temp = dir.absoluteFilePath(QDateTime::currentDateTime().toString("yyMMddhhmmsszzz")+".bc");
@@ -773,7 +775,7 @@ int main(int argc, char *argv[])
     a.setOrganizationName("me@rochus-keller.ch");
     a.setOrganizationDomain("github.com/rochus-keller/LjTools");
     a.setApplicationName("LjAsmEditor");
-    a.setApplicationVersion("0.5.4");
+    a.setApplicationVersion("0.5.5");
     a.setStyle("Fusion");
 
     Lua::AsmEditor w;
