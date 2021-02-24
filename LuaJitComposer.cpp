@@ -69,7 +69,8 @@ int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, quin
                 lastLine = unpackRow(lastLine);
             }
         }
-
+        if( lastLine < firstLine )
+            qWarning() << "JitComposer::openFunction: last line smaller than first line in function";
         f->d_firstline = firstLine;
         f->d_numline = lastLine - firstLine + 1; // NOTE: intentionally not unpack so that the larger numline determines larger word length
     }else
@@ -137,6 +138,11 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, q
     {
         if( d_hasDebugInfo )
         {
+            if( line < d_bc.d_fstack.back()->d_firstline ||
+                    line > ( d_bc.d_fstack.back()->d_firstline + d_bc.d_fstack.back()->d_numline - 1 ))
+                qWarning() << "JitComposer::addOpImp: line number not in function";
+            if( d_useRowColFormat && isPacked(line) && ( unpackRow(line) == 0 || unpackCol(line) == 0 ) )
+                qWarning() << "JitComposer::addOpImp: invalid row or column number";
             if( !d_useRowColFormat && isPacked(line) )
                 line = unpackRow(line);
             d_bc.d_fstack.back()->d_lines.append(line);
@@ -376,6 +382,7 @@ bool JitComposer::KSET(SlotNr dst, const QVariant& v, quint32 line )
     }else if( v.canConvert<JitBytecode::ConstTable>() )
         return addAd(JitBytecode::OP_KCDATA, dst, getConstSlot(v), line );
 
+    qWarning() << v.type() << v;
     Q_ASSERT( false );
     return false;
 }

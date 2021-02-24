@@ -1048,6 +1048,7 @@ bool JitBytecode::isNumber(const QVariant& v)
     case QVariant::Int:
     case QVariant::LongLong:
     case QVariant::Double:
+    case QMetaType::Float:
         return true;
     default:
         return false;

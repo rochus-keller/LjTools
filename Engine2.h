@@ -42,6 +42,7 @@ namespace Lua
     class DbgShell // interface
     {
     public:
+        virtual ~DbgShell() {}
         virtual void handleBreak( Engine2*, const QByteArray& source, quint32 line ) = 0;
         virtual void handleAliveSignal(Engine2*) {}
     };
