@@ -615,6 +615,12 @@ int Engine2::ErrHandler( lua_State* L )
 
     Engine2* e = Engine2::getInst();
 
+    if( e == 0 )
+    {
+        qWarning() << "Engine2::ErrHandler: getInst returns 0";
+        return 1;
+    }
+
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         return 1; // don't break if user wants to abort
 

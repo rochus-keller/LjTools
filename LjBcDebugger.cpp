@@ -341,13 +341,13 @@ void BcDebugger::closeEvent(QCloseEvent* event)
     const bool ok = checkSaved( tr("Quit Application"));
     event->setAccepted(ok);
 
-    qApp->quit();
+    // qApp->quit();
 }
 
 void BcDebugger::createTerminal()
 {
     QDockWidget* dock = new QDockWidget( tr("Terminal"), this );
-    dock->setObjectName("Terminal");
+    dock->setObjectName("BcTerminal");
     dock->setAllowedAreas( Qt::AllDockWidgetAreas );
     dock->setFeatures( QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable );
     d_term = new Terminal2(dock, d_lua);
@@ -359,7 +359,7 @@ void BcDebugger::createTerminal()
 void BcDebugger::createMods()
 {
     QDockWidget* dock = new QDockWidget( tr("Modules"), this );
-    dock->setObjectName("Modules");
+    dock->setObjectName("BcModules");
     dock->setAllowedAreas( Qt::AllDockWidgetAreas );
     dock->setFeatures( QDockWidget::DockWidgetMovable );
     d_mods = new QTreeWidget(dock);
@@ -374,7 +374,7 @@ void BcDebugger::createMods()
 void BcDebugger::createErrs()
 {
     QDockWidget* dock = new QDockWidget( tr("Issues"), this );
-    dock->setObjectName("Issues");
+    dock->setObjectName("BcIssues");
     dock->setAllowedAreas( Qt::AllDockWidgetAreas );
     dock->setFeatures( QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable );
     d_errs = new QTreeWidget(dock);
@@ -397,7 +397,7 @@ void BcDebugger::createErrs()
 void BcDebugger::createStack()
 {
     QDockWidget* dock = new QDockWidget( tr("Stack"), this );
-    dock->setObjectName("Stack");
+    dock->setObjectName("BcStack");
     dock->setAllowedAreas( Qt::AllDockWidgetAreas );
     dock->setFeatures( QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable );
     d_stack = new QTreeWidget(dock);
@@ -416,7 +416,7 @@ void BcDebugger::createStack()
 void BcDebugger::createLocals()
 {
     QDockWidget* dock = new QDockWidget( tr("Locals"), this );
-    dock->setObjectName("Locals");
+    dock->setObjectName("BcLocals");
     dock->setAllowedAreas( Qt::AllDockWidgetAreas );
     dock->setFeatures( QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetClosable );
     d_locals = new QTreeWidget(dock);
@@ -1397,7 +1397,8 @@ void BcDebugger::onQuit()
 {
     ENABLED_IF(!d_lua->isExecuting());
 
-    qApp->quit();
+    close();
+    // qApp->quit();
 }
 
 #ifndef LUAIDE_EMBEDDED
