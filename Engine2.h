@@ -99,12 +99,12 @@ namespace Lua
             bool d_inC;
             bool d_valid;
             QByteArray d_name;
-            quint32 d_lineDefined;
+            quint32 d_lineDefined; // row/col in source of cur function
             quint32 d_lastLine; // last pc when bytecode mode
             QByteArray d_what;
             QByteArray d_source;
-            quint32 d_line; // cur pc when bytecode mode
-            QSet<quint32> d_lines;
+            quint32 d_line; // cur pc when bytecode mode; row/col otherwise
+            QSet<quint32> d_lines; // lines only, no columns
             StackLevel():d_level(0),d_inC(false),d_valid(true),d_line(0),d_lineDefined(0),d_lastLine(0){}
         };
         typedef QList<StackLevel> StackLevels;
@@ -216,9 +216,10 @@ namespace Lua
 
 		BreaksPerScript d_breaks;
         Break d_stepBreak;
+        int d_stepCallDepth;
         QByteArray d_curScript;
 		QByteArray d_curBinary;
-        quint32 d_curLine;
+        quint32 d_curLine, d_stepCurLine; // line only, no col
 		lua_State* d_ctx;
         int d_activeLevel;
 		QByteArray d_lastError;

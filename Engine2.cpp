@@ -210,7 +210,7 @@ int Engine2::_prettyTraceLoc(lua_State* L)
 Engine2::Engine2(QObject *p):QObject(p),
     d_ctx( 0 ), d_debugging( false ), d_running(false), d_waitForCommand(false),
     d_dbgCmd(RunToBreakPoint), d_defaultDbgCmd(RunToBreakPoint), d_activeLevel(0), d_dbgShell(0),
-    d_printToStdout(false), d_aliveSignal(false), d_byteCodeMode(false)
+    d_printToStdout(false), d_aliveSignal(false), d_byteCodeMode(false), d_aliveCount(0), d_stepCallDepth(0)
 {
     lua_State* ctx = lua_open();
 	if( ctx == 0 )
@@ -426,6 +426,7 @@ bool Engine2::executeCmd(const QByteArray &source, const QByteArray &name)
     }
     d_lastError.clear();
     d_waitForCommand = false;
+    d_aliveCount = false;
     if( !pushFunction( source, name ) )
     {
         error( d_lastError );
@@ -447,6 +448,7 @@ bool Engine2::executeFile(const QByteArray &path)
     }
     d_lastError.clear();
     d_waitForCommand = false;
+    d_aliveCount = 0;
     switch( luaL_loadfile( d_ctx, path ) )
     {
     case 0: // no Error
@@ -553,6 +555,7 @@ bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
         return false;
 
     d_dbgCmd = d_defaultDbgCmd;
+    d_aliveCount = 0;
     notifyStart();
 
     const int err = lua_pcall( d_ctx, 0, 1, errf );
@@ -628,7 +631,7 @@ int Engine2::ErrHandler( lua_State* L )
 
     e->d_breakHit = false;
     e->d_curScript = l.d_source;
-    e->d_curLine = l.d_line;
+    e->d_curLine = JitComposer::unpackRow2(l.d_line);
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
     e->notify( ErrorHit, e->d_curScript, e->d_curLine );
@@ -649,58 +652,100 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
     Engine2* e = Engine2::getInst();
     Q_ASSERT( e != 0 );
 
-    if( ar->event == LUA_HOOKRET )
+    const StackLevel l = e->getStackLevel(0,false,ar);
+
+#if 0
     {
-        // HOOKRET comes when still in the returning function; even the pc is still the same as the previous HOOKLINE
-        if( e->getCmd() == StepOut || e->getCmd() == StepOver )
+        QByteArray action;
+        int depth = e->d_stepCallDepth;
+        switch(ar->event)
         {
-            StackLevel l = e->getStackLevel(0,false,ar);
-            if( e->d_stepBreak.first.isEmpty() ||
-                    ( e->d_stepBreak.first == l.d_source &&
-                    e->d_stepBreak.second == l.d_lineDefined ) )
-                e->d_dbgCmd = Engine2::StepNext;
-            // StepOut to StepNext if we leave the function in which StepOut was called
-            // StepOver to StepNext if we're about to jump out of the function where StepOver was called
+        case LUA_HOOKRET:
+            if( !l.d_inC )
+                depth--;
+            action = "RETURN";
+            break;
+        case LUA_HOOKCALL:
+            if( !l.d_inC )
+                depth++;
+            if( l.d_inC )
+                action = "NATIVE_CALL";
+            else
+                action = "CALL";
+            break;
+        case LUA_HOOKLINE:
+            action = "LINE";
+            break;
+        case LUA_HOOKCOUNT:
+            action = "COUNT";
+            break;
+        case LUA_HOOKTAILRET:
+            action = "TAILRET";
+            break;
+        }
+
+        qDebug() << "Engine2::debugHook" << action << "calldepth" << depth
+                 << l.d_source << JitComposer::unpackRow2(l.d_line) << JitComposer::unpackCol2(l.d_line);
+    }
+#endif
+
+    if( ar->event == LUA_HOOKCALL )
+    {
+        // HOOKRET comes when already in the function to be called
+        if( e->d_dbgCmd == StepOut || e->d_dbgCmd == StepOver )
+        {
+            if( !l.d_inC )
+                e->d_stepCallDepth++;
         }
         return;
     }
-
-    if( /* e->d_aliveSignal && */ e->d_aliveCount > s_aliveCount / 2 && e->d_dbgShell )
+    if( ar->event == LUA_HOOKRET )
     {
-        // even if aliveSignal is not enabled it is necessary to give calculation time to the shell
-        // from time to time during long runs without breaks
-        e->d_dbgShell->handleAliveSignal( e );
-        e->d_aliveCount = 0;
-        if( e->isStepping() )
+        // HOOKRET comes when still in the returning function; even the pc is still the same as the previous HOOKLINE
+        if( e->d_dbgCmd == StepOut || e->d_dbgCmd == StepOver )
         {
-            e->d_waitForCommand = true;
-            e->d_breakHit = true;
-            e->notify( LineHit, e->d_curScript, e->d_curLine );
-            if( e->d_dbgShell )
-                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
-            e->d_waitForCommand = false;
-            return;
+            Q_ASSERT( !l.d_inC && !e->d_stepBreak.first.isEmpty() ); // see runToNextLine
+
+            e->d_stepCallDepth--;
+            if(  e->d_stepCallDepth < 0 && e->d_stepBreak.first == l.d_source &&
+                    e->d_stepBreak.second == l.d_lineDefined )
+                e->d_dbgCmd = Engine2::StepNext;
+                // Change StepOut to StepNext if we leave the function in which StepOut was called (i.e. callDepth<0)
+                // Change StepOver to StepNext if we're about to leave the function where StepOver was called (i.e. callDepth<0)
+            else if( e->d_dbgCmd == StepOver && e->d_stepCallDepth == 0 )
+            {
+                // if we step over a procedure call reset curLine/Script to the original value to avoid that
+                // we break twice on the line of the function call
+                e->d_curScript = e->d_stepBreak.first;
+                e->d_curLine = e->d_stepCurLine;
+                e->d_dbgCmd = Engine2::StepNext;
+            }
         }
+        return;
     }
+    Q_ASSERT( ar->event == LUA_HOOKLINE );
 
     e->d_aliveCount++;
 
-    StackLevel l = e->getStackLevel(0,false,ar);
-    const bool lineChanged = ( e->d_curLine != l.d_line || e->d_curScript != l.d_source );
+    const quint32 line = e->d_byteCodeMode ? l.d_line : JitComposer::unpackRow2(l.d_line);
+    const bool lineChanged = ( e->d_curLine != line || e->d_curScript != l.d_source );
+
+    e->d_curScript = l.d_source;
+    if( e->d_byteCodeMode )
+        e->d_curLine = packDeflinePc( JitComposer::unpackRow2(l.d_lineDefined),line);
+    else
+        e->d_curLine = line;
 
     if( e->d_byteCodeMode || lineChanged )
     {
         e->d_breakHit = false;
-        e->d_curScript = l.d_source;
-        if( e->d_byteCodeMode )
-            e->d_curLine = packDeflinePc( JitComposer::unpackRow2(l.d_lineDefined),l.d_line);
-        else
-            e->d_curLine = l.d_line;
         e->d_activeLevel = 0;
 
-        if( ( e->getCmd() == Engine2::StepNext ) ||
-            ( e->getCmd() == Engine2::StepOver && e->d_stepBreak.first == e->d_curScript &&
+        if( e->d_dbgCmd == Engine2::StepNext ||
+                ( e->d_dbgCmd == Engine2::StepOver && e->d_stepCallDepth == 0 &&
+                                e->d_stepBreak.first == l.d_source &&
                                 e->d_stepBreak.second == l.d_lineDefined ) )
+                // the Engine2::StepOver case is still relevant here because we can step over non-calls too.
         {
             e->d_waitForCommand = true;
             e->d_breakHit = true;
@@ -723,8 +768,27 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
             lua_error(L);
         }
         e->notify( Continued );
-    }else
-        lua_pop(L, 1); // function
+    }else if( /* e->d_aliveSignal && */ e->d_aliveCount > s_aliveCount / 2 && e->d_dbgShell )
+    {
+        // even if aliveSignal is not enabled it is necessary to give calculation time to the shell
+        // from time to time during long runs without breaks
+        e->d_dbgShell->handleAliveSignal( e );
+        e->d_aliveCount = 0;
+#if 0
+        // why should this be useful?
+        if( e->isStepping() )
+        {
+            e->d_waitForCommand = true;
+            e->d_breakHit = true;
+            e->notify( LineHit, e->d_curScript, e->d_curLine );
+            if( e->d_dbgShell )
+                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            e->d_waitForCommand = false;
+        }
+#endif
+    }
+    //else // this doesn't seem to be necessary, even counterproductive
+    //    lua_pop(L, 1); // function
 }
 
 void Engine2::aliveSignal(lua_State* L, lua_Debug* ar)
@@ -783,9 +847,9 @@ void Engine2::setDebug(bool on)
     if( on )
     {
         if( d_byteCodeMode )
-            lua_sethook( d_ctx, debugHook, LUA_MASKCOUNT | LUA_MASKRET, 1);
+            lua_sethook( d_ctx, debugHook, LUA_MASKCOUNT | LUA_MASKRET | LUA_MASKCALL, 1);
         else
-            lua_sethook( d_ctx, debugHook, LUA_MASKLINE | LUA_MASKRET, 1);
+            lua_sethook( d_ctx, debugHook, LUA_MASKLINE | LUA_MASKRET | LUA_MASKCALL, 1);
     }else if( d_aliveSignal )
         lua_sethook( d_ctx, aliveSignal, LUA_MASKCOUNT, s_aliveCount); // get's a hook call with each bytecode op when 1
     else
@@ -817,20 +881,26 @@ void Engine2::setBytecodeMode(bool on)
 
 void Engine2::runToNextLine(DebugCommand where)
 {
-    Q_ASSERT( where >= StepNext && where <= StepOut );
+    Q_ASSERT( where == StepNext || where == StepOver || where == StepOut );
+    d_stepBreak = Break();
     if( where == StepOver || where == StepOut )
     {
         StackLevel l = getStackLevel(0,false);
-        if( l.d_inC && where == StepOver )
-            where = StepOut;
         if( l.d_inC )
-            d_stepBreak.first.clear();
-        else
+        {
+            // an FFI C call apparently never issues a LUA_HOOKLINE or LUA_HOOKRET (but a LUA_HOOKCALL)
+            where = StepNext;
+        }else
+        {
+            // remember in which function StepOver or StepOut were called
             d_stepBreak.first = l.d_source;
-        d_stepBreak.second = l.d_lineDefined;
+            d_stepBreak.second = l.d_lineDefined;
+            d_stepCurLine = d_curLine;
+        }
     }
     d_dbgCmd = where;
     d_waitForCommand = false;
+    d_stepCallDepth = 0;
 }
 
 void Engine2::runToBreakPoint()
@@ -854,7 +924,7 @@ int Engine2::TRAP(lua_State* L)
     StackLevel l = e->getStackLevel(0,false);
 
     e->d_curScript = l.d_source;
-    e->d_curLine = l.d_line;
+    e->d_curLine = e->d_byteCodeMode ? l.d_line : JitComposer::unpackRow2(l.d_line);
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
     e->d_breakHit = true;
@@ -1021,7 +1091,12 @@ Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool wit
         curline = 0;
     const bool inLua = *(what) == 'L' || *(what) == 'm';
     l.d_level = level;
-    l.d_line = !inLua ? 0 : ( bytecodeMode ? curline : JitComposer::unpackRow2(curline) );
+    if( !inLua )
+        l.d_line = 0;
+    else if( bytecodeMode )
+        l.d_line = curline; // in this case curline is the pc
+    else
+        l.d_line = curline; // no, we want row and col; before JitComposer::unpackRow2(curline);
     l.d_lineDefined = ar->linedefined;
     l.d_lastLine = ar->lastlinedefined;
     l.d_what = ar->namewhat;
