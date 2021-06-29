@@ -69,7 +69,11 @@ namespace Lua
         enum DebugCommand { StepNext /* previously StepInto */, StepOver, StepOut, RunToBreakPoint, Abort, AbortSilently };
         void setDbgShell( DbgShell* ds ) { d_dbgShell = ds; }
 		void setDebug( bool on );
+        void setJit( bool on ); // default on
         void setAliveSignal( bool on );
+        enum Mode { LineMode, PcMode, RowColMode };
+        void setMode(Mode m){ d_mode = m; }
+        quint8 getMode() const { return d_mode; }
         void setBytecodeMode(bool on);
         bool isDebug() const { return d_debugging; }
         void runToNextLine(DebugCommand where = StepNext);
@@ -81,6 +85,7 @@ namespace Lua
         DebugCommand getDefaultCmd() const { return d_defaultDbgCmd; }
         void terminate(bool silent = false);
         DebugCommand getCmd() const { return d_dbgCmd; }
+        quint32 getCurRowCol() const { return d_curRowCol; }
         bool isStepping() const { return d_dbgCmd == StepNext || d_dbgCmd == StepOver || d_dbgCmd == StepOut; }
         bool isWaiting() const { return d_waitForCommand; }
         bool isBreakHit() const { return d_breakHit; }
@@ -201,6 +206,8 @@ namespace Lua
         void onNotify( int messageType, QByteArray val1 = "", int val2 = 0 );
 	protected:
 		virtual void notify( MessageType messageType, const QByteArray& val1 = "", int val2 = 0 );
+        quint32 lineForBreak() const;
+        int lineForNotify() const;
     private:
         static StackLevel getStackLevel(lua_State *L, quint16 level, bool withValidLines, bool bytecodeMode, lua_Debug* ar);
         static void debugHook(lua_State *L, lua_Debug *ar);
@@ -219,7 +226,7 @@ namespace Lua
         int d_stepCallDepth;
         QByteArray d_curScript;
 		QByteArray d_curBinary;
-        quint32 d_curLine, d_stepCurLine; // line only, no col
+        quint32 d_curRowCol, d_stepCurRowCol; // packDeflinePc in case of PcMode, RowCol otherwise
 		lua_State* d_ctx;
         int d_activeLevel;
 		QByteArray d_lastError;
@@ -234,7 +241,8 @@ namespace Lua
         bool d_running;
         bool d_waitForCommand;
         bool d_printToStdout;
-        bool d_byteCodeMode; // default off = source line mode
+        quint8 d_mode; // default source line mode
+        bool d_stepOverSync;
 	};
 }
 

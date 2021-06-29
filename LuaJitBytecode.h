@@ -169,6 +169,7 @@ namespace Lua
         static quint8 toPrimitive( const QVariant& );
         static const char* nameOfOp(int op );
         static QString checkFileHeader( const QByteArray& );
+        static bool isLuaJitBc( const QByteArray& bc) { return checkFileHeader(bc).isEmpty(); }
     protected:
         bool parseHeader(QIODevice* );
         bool writeHeader(QIODevice* );

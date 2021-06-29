@@ -1097,7 +1097,7 @@ QString JitBytecode::checkFileHeader(const QByteArray& buf)
 
     if( buf[3] != char(BCDUMP_VERSION) )
         return "wrong version";
-    return "";
+    return QString();
 }
 
 const JitBytecode::Function::Var* JitBytecode::Function::findVar(int pc, int slot, int* idx) const

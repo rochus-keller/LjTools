@@ -210,7 +210,8 @@ int Engine2::_prettyTraceLoc(lua_State* L)
 Engine2::Engine2(QObject *p):QObject(p),
     d_ctx( 0 ), d_debugging( false ), d_running(false), d_waitForCommand(false),
     d_dbgCmd(RunToBreakPoint), d_defaultDbgCmd(RunToBreakPoint), d_activeLevel(0), d_dbgShell(0),
-    d_printToStdout(false), d_aliveSignal(false), d_byteCodeMode(false), d_aliveCount(0), d_stepCallDepth(0)
+    d_printToStdout(false), d_aliveSignal(false), d_mode(LineMode), d_aliveCount(0), d_stepCallDepth(0),
+    d_stepOverSync(false)
 {
     lua_State* ctx = lua_open();
 	if( ctx == 0 )
@@ -608,15 +609,16 @@ void Engine2::setActiveLevel(int level)
     if( d_activeLevel == level )
         return;
     d_activeLevel = level;
-    notify( ActiveLevel, d_curScript, d_curLine );
+    notify( ActiveLevel, d_curScript, lineForNotify() );
 }
 
 int Engine2::ErrHandler( lua_State* L )
 {
-    // const char* msg = lua_tostring(L, 1 );
     // This function leaves the error message just where it is
 
     Engine2* e = Engine2::getInst();
+
+    //const char* msg = lua_tostring(L, 1 ); // TEST
 
     if( e == 0 )
     {
@@ -631,12 +633,12 @@ int Engine2::ErrHandler( lua_State* L )
 
     e->d_breakHit = false;
     e->d_curScript = l.d_source;
-    e->d_curLine = JitComposer::unpackRow2(l.d_line);
+    e->d_curRowCol = l.d_line;
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
-    e->notify( ErrorHit, e->d_curScript, e->d_curLine );
+    e->notify( ErrorHit, e->d_curScript, e->lineForNotify() );
     if( e->d_dbgShell )
-        e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+        e->d_dbgShell->handleBreak( e, e->d_curScript, e->lineForBreak() );
 
     e->d_waitForCommand = false;
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
@@ -684,7 +686,7 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
             break;
         }
 
-        qDebug() << "Engine2::debugHook" << action << "calldepth" << depth
+        qDebug() << "Engine2::debugHook" << "calldepth" << depth << action
                  << l.d_source << JitComposer::unpackRow2(l.d_line) << JitComposer::unpackCol2(l.d_line);
     }
 #endif
@@ -715,32 +717,47 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
             else if( e->d_dbgCmd == StepOver && e->d_stepCallDepth == 0 )
             {
                 // if we step over a procedure call reset curLine/Script to the original value to avoid that
-                // we break twice on the line of the function call
+                // we break twice on the line of the function call (by avoiding lineChanged to become true)
                 e->d_curScript = e->d_stepBreak.first;
-                e->d_curLine = e->d_stepCurLine;
+                e->d_curRowCol = e->d_stepCurRowCol;
                 e->d_dbgCmd = Engine2::StepNext;
+                e->d_stepOverSync = true;
             }
         }
         return;
     }
-    Q_ASSERT( ar->event == LUA_HOOKLINE );
+    Q_ASSERT( ar->event == LUA_HOOKLINE || ar->event == LUA_HOOKCOUNT );
 
     e->d_aliveCount++;
 
-    const quint32 line = e->d_byteCodeMode ? l.d_line : JitComposer::unpackRow2(l.d_line);
-    const bool lineChanged = ( e->d_curLine != line || e->d_curScript != l.d_source );
+    bool lineChanged = false;
+    switch( e->d_mode )
+    {
+    case LineMode:
+        if( e->d_stepOverSync && e->d_stepCallDepth == 0 )
+            e->d_dbgCmd = StepOver; // happens if arg or a call is yet another call on the same line
+        else
+            lineChanged = ( JitComposer::unpackRow2(e->d_curRowCol) != JitComposer::unpackRow2(l.d_line) ||
+                        e->d_curScript != l.d_source );
+        break;
+    case RowColMode:
+    case PcMode:
+        lineChanged = ( unpackDeflinePc(e->d_curRowCol).second != l.d_line || e->d_curScript != l.d_source );
+        break;
+    }
 
     e->d_curScript = l.d_source;
-    if( e->d_byteCodeMode )
-        e->d_curLine = packDeflinePc( JitComposer::unpackRow2(l.d_lineDefined),line);
+    if( e->d_mode == PcMode )
+        e->d_curRowCol = packDeflinePc( JitComposer::unpackRow2(l.d_lineDefined),l.d_line);
     else
-        e->d_curLine = line;
+        e->d_curRowCol = l.d_line;
 
-    if( e->d_byteCodeMode || lineChanged )
+    if( e->d_mode == PcMode || lineChanged )
     {
         e->d_breakHit = false;
         e->d_activeLevel = 0;
 
+        const quint32 line = e->lineForBreak();
         if( e->d_dbgCmd == Engine2::StepNext ||
                 ( e->d_dbgCmd == Engine2::StepOver && e->d_stepCallDepth == 0 &&
                                 e->d_stepBreak.first == l.d_source &&
@@ -749,17 +766,17 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         {
             e->d_waitForCommand = true;
             e->d_breakHit = true;
-            e->notify( LineHit, e->d_curScript, e->d_curLine );
+            e->notify( LineHit, e->d_curScript, e->lineForNotify() );
             if( e->d_dbgShell )
-                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+                e->d_dbgShell->handleBreak( e, e->d_curScript, line );
             e->d_waitForCommand = false;
-        }else if( e->d_breaks.value( e->d_curScript ).contains( e->d_curLine ) )
+        }else if( e->d_breaks.value( e->d_curScript ).contains( line ) )
         {
             e->d_waitForCommand = true;
             e->d_breakHit = true;
-            e->notify( BreakHit, e->d_curScript, e->d_curLine );
+            e->notify( BreakHit, e->d_curScript,e->lineForNotify() );
             if( e->d_dbgShell )
-                e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+                e->d_dbgShell->handleBreak( e, e->d_curScript, line );
             e->d_waitForCommand = false;
         }
         if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
@@ -787,6 +804,7 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         }
 #endif
     }
+    e->d_stepOverSync = false;
     //else // this doesn't seem to be necessary, even counterproductive
     //    lua_pop(L, 1); // function
 }
@@ -801,8 +819,8 @@ void Engine2::aliveSignal(lua_State* L, lua_Debug* ar)
         if( e->isStepping() )
         {
             e->d_waitForCommand = true;
-            e->notify( LineHit, e->d_curScript, e->d_curLine );
-            e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+            e->notify( LineHit, e->d_curScript, e->lineForNotify() );
+            e->d_dbgShell->handleBreak( e, e->d_curScript, e->lineForBreak() );
             e->d_waitForCommand = false; // TODO
         }
     }
@@ -846,7 +864,7 @@ void Engine2::setDebug(bool on)
         return;
     if( on )
     {
-        if( d_byteCodeMode )
+        if( d_mode == PcMode )
             lua_sethook( d_ctx, debugHook, LUA_MASKCOUNT | LUA_MASKRET | LUA_MASKCALL, 1);
         else
             lua_sethook( d_ctx, debugHook, LUA_MASKLINE | LUA_MASKRET | LUA_MASKCALL, 1);
@@ -856,6 +874,16 @@ void Engine2::setDebug(bool on)
         lua_sethook( d_ctx, 0, 0, 0);
     d_debugging = on;
 
+}
+
+void Engine2::setJit(bool on)
+{
+    int flags = LUAJIT_MODE_ENGINE;
+    if( on )
+        flags |= LUAJIT_MODE_ON;
+    else
+        flags |= LUAJIT_MODE_OFF;
+    luaJIT_setmode( d_ctx, 0, flags );
 }
 
 void Engine2::setAliveSignal(bool on)
@@ -876,7 +904,7 @@ void Engine2::setBytecodeMode(bool on)
 {
     if( d_debugging )
         return;
-    d_byteCodeMode = on;
+    d_mode = on ? PcMode : LineMode;
 }
 
 void Engine2::runToNextLine(DebugCommand where)
@@ -895,7 +923,7 @@ void Engine2::runToNextLine(DebugCommand where)
             // remember in which function StepOver or StepOut were called
             d_stepBreak.first = l.d_source;
             d_stepBreak.second = l.d_lineDefined;
-            d_stepCurLine = d_curLine;
+            d_stepCurRowCol = d_curRowCol;
         }
     }
     d_dbgCmd = where;
@@ -924,14 +952,14 @@ int Engine2::TRAP(lua_State* L)
     StackLevel l = e->getStackLevel(0,false);
 
     e->d_curScript = l.d_source;
-    e->d_curLine = e->d_byteCodeMode ? l.d_line : JitComposer::unpackRow2(l.d_line);
+    e->d_curRowCol = l.d_line;
     e->d_activeLevel = 0;
     e->d_waitForCommand = true;
     e->d_breakHit = true;
     e->setDebug(true);
-    e->notify( BreakHit, e->d_curScript, e->d_curLine );
+    e->notify( BreakHit, e->d_curScript, e->lineForNotify() );
     if( e->d_dbgShell )
-        e->d_dbgShell->handleBreak( e, e->d_curScript, e->d_curLine );
+        e->d_dbgShell->handleBreak( e, e->d_curScript, e->lineForBreak() );
     e->d_waitForCommand = false;
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         e->notify( Aborted );
@@ -1056,7 +1084,7 @@ Engine2::StackLevels Engine2::getStackTrace() const
 
 Engine2::StackLevel Engine2::getStackLevel(quint16 level, bool withValidLines, lua_Debug* ar) const
 {
-    return getStackLevel( d_ctx, level, withValidLines, d_byteCodeMode, ar );
+    return getStackLevel( d_ctx, level, withValidLines, d_mode == PcMode, ar );
 }
 
 Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool withValidLines, bool bytecodeMode, lua_Debug* ar )
@@ -1475,5 +1503,26 @@ void Engine2::notify(MessageType messageType, const QByteArray &val1, int val2)
             break;
         }
     }
-	emit onNotify( messageType, val1, val2 );
+    emit onNotify( messageType, val1, val2 );
+}
+
+quint32 Engine2::lineForBreak() const
+{
+    if( d_mode == LineMode )
+    {
+        return JitComposer::unpackRow2(d_curRowCol);
+    }else
+        return d_curRowCol;
+}
+
+int Engine2::lineForNotify() const
+{
+    switch( d_mode )
+    {
+    case LineMode:
+    case RowColMode:
+        return JitComposer::unpackRow2(d_curRowCol);
+    case PcMode:
+        return unpackDeflinePc(d_curRowCol).second;
+    }
 }

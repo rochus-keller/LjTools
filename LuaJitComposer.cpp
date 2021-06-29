@@ -140,9 +140,11 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, q
         {
             if( line < d_bc.d_fstack.back()->d_firstline ||
                     line > ( d_bc.d_fstack.back()->d_firstline + d_bc.d_fstack.back()->d_numline - 1 ))
-                qWarning() << "JitComposer::addOpImp: line number not in function";
-            if( d_useRowColFormat && isPacked(line) && ( unpackRow(line) == 0 || unpackCol(line) == 0 ) )
-                qWarning() << "JitComposer::addOpImp: invalid row or column number";
+                qWarning() << "JitComposer::addOpImp: line number not in function" <<
+                              d_bc.d_name << unpackRow2(line) << unpackCol2(line);
+            else if( d_useRowColFormat && isPacked(line) && ( unpackRow(line) == 0 || unpackCol(line) == 0 ) )
+                qWarning() << "JitComposer::addOpImp: invalid row or column number" <<
+                              d_bc.d_name << unpackRow2(line) << unpackCol2(line);
             if( !d_useRowColFormat && isPacked(line) )
                 line = unpackRow(line);
             d_bc.d_fstack.back()->d_lines.append(line);
