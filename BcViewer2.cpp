@@ -138,7 +138,7 @@ void BcViewer2::gotoLine(quint32 lnr)
     d_lock = false;
 }
 
-void BcViewer2::gotoFuncPc(quint32 func, quint32 pc, bool center, bool setMarker)
+quint32 BcViewer2::gotoFuncPc(quint32 func, quint32 pc, bool center, bool setMarker)
 {
     QTreeWidgetItem* found = findItem(func,pc);
     if( found )
@@ -156,7 +156,9 @@ void BcViewer2::gotoFuncPc(quint32 func, quint32 pc, bool center, bool setMarker
                 found->setIcon(0, QPixmap(":/images/marker.png"));
             d_lastMarker = found;
         }
+        return found->data(2,Qt::UserRole).toUInt();
     }
+    return 0;
 }
 
 void BcViewer2::clearMarker()

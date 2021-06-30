@@ -900,11 +900,24 @@ void Engine2::setAliveSignal(bool on)
         lua_sethook( d_ctx, aliveSignal, 0, 0);
 }
 
+void Engine2::setDebugMode(Engine2::Mode m)
+{
+    d_mode = m;
+    if( d_debugging )
+    {
+        setDebug(false);
+        setDebug(true);
+    }
+}
+
 void Engine2::setBytecodeMode(bool on)
 {
-    if( d_debugging )
-        return;
     d_mode = on ? PcMode : LineMode;
+    if( d_debugging )
+    {
+        setDebug(false);
+        setDebug(true);
+    }
 }
 
 void Engine2::runToNextLine(DebugCommand where)

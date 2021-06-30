@@ -106,7 +106,7 @@ struct _ByteCode
 #define BCSTRUCT(name, ma, mb, mc, mt) { #name, JitBytecode::Instruction::_##ma, \
     JitBytecode::Instruction::_##mb, JitBytecode::Instruction::_##mc },
 BCDEF(BCSTRUCT)
-#undef BCENUM
+#undef BCSTRUCT
 };
 
 const char* JitBytecode::Instruction::s_typeName[] =

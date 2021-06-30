@@ -35,7 +35,7 @@ namespace Lua
         bool loadFrom( const QString&, const QString& source = QString() );
         bool loadFrom( QIODevice*, const QString& path = QString() );
         void gotoLine(quint32);
-        void gotoFuncPc(quint32 func, quint32 pc, bool center, bool setMarker); // pc is one-based
+        quint32 gotoFuncPc(quint32 func, quint32 pc, bool center, bool setMarker); // pc is one-based, returns row/col or 0
         void clearMarker();
         bool saveTo( const QString&, bool stripped = false );
         void clear();

@@ -72,7 +72,7 @@ namespace Lua
         void setJit( bool on ); // default on
         void setAliveSignal( bool on );
         enum Mode { LineMode, PcMode, RowColMode };
-        void setMode(Mode m){ d_mode = m; }
+        void setDebugMode(Mode m);
         quint8 getMode() const { return d_mode; }
         void setBytecodeMode(bool on);
         bool isDebug() const { return d_debugging; }
