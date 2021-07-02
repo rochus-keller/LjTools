@@ -728,22 +728,25 @@ int JitComposer::nextFreeSlot(SlotPool& pool, int len, bool callArgs )
 {
     int slot = 0;
     if( !pool.d_callArgs.isEmpty() )
-        slot = pool.d_callArgs.back();
+        slot = pool.d_callArgs.back(); // in any case don't start search lower than a present call
     while( true )
     {
-        // skip used
-        while( slot < pool.d_slots.size() && pool.d_slots.test(slot) )
-            slot++;
+        if( callArgs )
+            slot = highestUsedSlot(pool) + 1; // if this is a call don't reuse lower slots
+        else
+            slot = lowestUnusedSlot(pool,slot); // if this is not a call, reuse lowest possible slot, higher than all existing calls
         if( slot < pool.d_slots.size() )
         {
             Q_ASSERT( !pool.d_slots.test(slot) );
             if( len == 1 )
             {
+                // trivial case, we have what we need
                 pool.d_slots.set(slot);
                 setFrameSize(pool,slot,len);
                 setCallArgs(pool,slot,callArgs);
                 return slot;
             } // else
+                // see if there are enough consecutive to meet len
             const int free = checkFree( pool, slot, len );
             if( free == len )
             {
@@ -752,8 +755,10 @@ int JitComposer::nextFreeSlot(SlotPool& pool, int len, bool callArgs )
                 setCallArgs(pool,slot,callArgs);
                 return slot;
             } // else
+                // the slot position doesn't have len free consecutive slots; continue search after this
             slot += free;
-        }
+        }else
+            break;
     }
     return -1;
 }
@@ -776,6 +781,14 @@ int JitComposer::highestUsedSlot(const JitComposer::SlotPool& pool)
         if( pool.d_slots.test(i) )
             return i;
     return -1;
+}
+
+int JitComposer::lowestUnusedSlot(const JitComposer::SlotPool& pool, int start)
+{
+    int slot = start;
+    while( slot < pool.d_slots.size() && pool.d_slots.test(slot) )
+        slot++;
+    return slot; // returns either a free slot or one >= pool.size()
 }
 
 quint32 JitComposer::packRowCol(quint32 row, quint32 col)

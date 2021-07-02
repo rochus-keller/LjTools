@@ -300,6 +300,7 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
         fi->setText(3,printRowCol(f.lastLine()));
         fi->setData(2,Qt::UserRole,f.d_firstline);
         fi->setData(0,Qt::UserRole,line);
+        fi->setToolTip(0, f.d_sourceFile );
         d_items[line].append(fi);
         d_funcs[f.d_firstline] = fi;
     }

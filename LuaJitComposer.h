@@ -161,6 +161,7 @@ namespace Lua
         static int nextFreeSlot(SlotPool& pool, int len = 1 , bool callArgs = false);
         static bool releaseSlot( SlotPool& pool, quint8 slot, int len = 1 );
         static int highestUsedSlot( const SlotPool& pool );
+        static int lowestUnusedSlot(const SlotPool& pool , int start = 0);
 
         enum { ROW_BIT_LEN = 19, COL_BIT_LEN = 32 - ROW_BIT_LEN - 1, MSB = 0x80000000 };
         // supports 524k lines and 4k chars per line
