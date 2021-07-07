@@ -701,7 +701,7 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         }
         return;
     }
-    if( ar->event == LUA_HOOKRET )
+    if( ar->event == LUA_HOOKRET ) // LUA_HOOKRET isn't fired in case of CALLT!!! Use _LJTOOLS_DONT_CREATE_TAIL_CALLS to avoid.
     {
         // HOOKRET comes when still in the returning function; even the pc is still the same as the previous HOOKLINE
         if( e->d_dbgCmd == StepOut || e->d_dbgCmd == StepOver )
@@ -734,7 +734,7 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
     switch( e->d_mode )
     {
     case LineMode:
-        if( e->d_stepOverSync && e->d_stepCallDepth == 0 )
+        if( e->d_stepOverSync && e->d_stepCallDepth == 0 && JitComposer::isPacked(l.d_line) )
             e->d_dbgCmd = StepOver; // happens if arg or a call is yet another call on the same line
         else
             lineChanged = ( JitComposer::unpackRow2(e->d_curRowCol) != JitComposer::unpackRow2(l.d_line) ||

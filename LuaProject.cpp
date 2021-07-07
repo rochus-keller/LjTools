@@ -28,7 +28,7 @@
 #include <QCoreApplication>
 using namespace Lua;
 
-Project::Project(QObject *parent) : QObject(parent),d_dirty(false),d_useRequire(true)
+Project::Project(QObject *parent) : QObject(parent),d_dirty(false),d_useRequire(false)
 {
     d_err = new Ljas::Errors(this);
     d_err->setRecord(true);

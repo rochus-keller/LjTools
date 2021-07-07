@@ -819,7 +819,13 @@ void LuaIde::onRun()
         {
             hasErrors = true;
         }else if( d_pro->useRequire())
-            d_lua->executeCmd( QString("%1 = require '%2'").arg(module).arg(module).toUtf8(), "terminal" );
+        {
+            if( !d_lua->executeCmd( QString("%1 = require '%2'").arg(module).arg(module).toUtf8(), "terminal" ) )
+            {
+                qCritical() << d_lua->getLastError().constData();
+                hasErrors = true;
+            }
+        }
 
         if( d_lua->isAborted() )
         {
@@ -1029,20 +1035,21 @@ void LuaIde::onTabChanged()
 
     onEditorChanged();
 
+    d_bcv->clear();
     if( !path.isEmpty() )
     {
-        QByteArray bc; //  TODO
-        if( !bc.isEmpty() )
+        const QString to = QDir::temp().absoluteFilePath("temp.bc");
+        QFile in(path);
+        if(in.open(QIODevice::ReadOnly))
         {
-            QBuffer buf( &bc );
-            buf.open(QIODevice::ReadOnly);
-            d_bcv->loadFrom(&buf);
-            onCursor();
-            return;
+            if( d_lua->saveBinary(in.readAll(),QFileInfo(path).baseName().toUtf8(),to.toUtf8()) )
+            {
+                d_bcv->loadFrom(to);
+                QFile::remove(to);
+                onCursor();
+            }
         }
     }
-    // else
-    d_bcv->clear();
 }
 
 void LuaIde::onTabClosing(int i)

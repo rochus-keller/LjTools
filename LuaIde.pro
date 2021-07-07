@@ -26,6 +26,8 @@ TEMPLATE = app
 
 INCLUDEPATH += .. ../LuaJIT/src
 
+DEFINES += _LJTOOLS_DONT_CREATE_TAIL_CALLS
+
 include( LuaIde.pri )
 
 # NOTE on LuaJIT: to make use of the line:column position information used in
