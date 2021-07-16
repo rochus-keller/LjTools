@@ -109,7 +109,7 @@ namespace Lua
         bool ISFC(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
         bool IST(SlotNr slot, quint32 line = 0 );
         bool ISTC(SlotNr lhs, SlotNr rhs, quint32 line = 0 );
-        bool JMP(SlotNr base, Jump offset, quint32 line = 0 );
+        bool JMP(SlotNr base, Jump offset, quint32 line = 0 ); // base: first unused slot (within frame!)
         bool KNIL(SlotNr base, quint8 len = 1, quint32 line = 0 );
         bool KSET(SlotNr dst, const QVariant& , quint32 line = 0 );
         bool LEN(SlotNr lhs, SlotNr rhs, quint32 line = 0 );

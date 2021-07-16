@@ -27,6 +27,7 @@ TEMPLATE = app
 INCLUDEPATH += .. ../LuaJIT/src
 
 DEFINES += _LJTOOLS_DONT_CREATE_TAIL_CALLS
+#DEFINES += LUA_USE_ASSERT
 
 include( LuaIde.pri )
 

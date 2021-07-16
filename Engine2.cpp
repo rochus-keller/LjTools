@@ -954,6 +954,9 @@ int Engine2::TRAP(lua_State* L)
 {
     Engine2* e = Engine2::getInst();
 
+    if( e->d_dbgShell == 0 )
+        return 0; // ignored if there is no debugger
+
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         return 0; // don't break if user wants to abort
 
@@ -1509,10 +1512,10 @@ void Engine2::notify(MessageType messageType, const QByteArray &val1, int val2)
         switch( messageType )
         {
         case Print:
-            std::cout << val1.constData();
+            std::cout << val1.constData() << std::flush;
             break;
         case Error:
-            std::cerr << val1.constData();
+            std::cerr << val1.constData() << std::flush;
             break;
         }
     }
