@@ -213,24 +213,8 @@ Engine2::Engine2(QObject *p):QObject(p),
     d_printToStdout(false), d_aliveSignal(false), d_mode(LineMode), d_aliveCount(0), d_stepCallDepth(0),
     d_stepOverSync(false)
 {
-    lua_State* ctx = lua_open();
-	if( ctx == 0 )
-		throw Exception( "Not enough memory to create scripting context" );
-
-    LUAJIT_VERSION_SYM();
-
-	d_ctx = ctx;
-
-	addLibrary( BASE );	// Das muss hier stehen, sonst wird ev. print wieder überschrieben
-
-#ifndef LUA_ENGINE_USE_DEFAULT_PRINT
-    lua_pushcfunction( ctx, _print );
-    lua_setglobal( ctx, "print" );
-#endif
-    lua_pushcfunction( ctx, dbgout );
-    lua_setglobal( ctx, "dbgout" );
-    lua_pushcfunction( ctx, _prettyTraceLoc );
-    lua_setglobal( ctx, "_prettyTraceLoc" );
+    if( !restart() )
+        throw Exception( "failed to create engine" );
 }
 
 Engine2::~Engine2()
@@ -243,7 +227,54 @@ void Engine2::addStdLibs()
 {
 	addLibrary( TABLE );
 	addLibrary( STRING );
-	addLibrary( MATH );
+    addLibrary( MATH );
+}
+
+bool Engine2::restart()
+{
+    // necessary because there seems to be no other way to get rid of ffi.cdef declarations
+    if( isExecuting() )
+        return false;
+
+    if( d_ctx )
+    {
+        lua_close( d_ctx );
+        d_ctx = 0;
+    }
+
+    lua_State* ctx = lua_open();
+    if( ctx == 0 )
+    {
+        qCritical() << "Not enough memory to create Lua context";
+        return false;
+    }
+
+    LUAJIT_VERSION_SYM();
+
+    d_ctx = ctx;
+
+    addLibrary( BASE );	// Das muss hier stehen, sonst wird ev. print wieder überschrieben
+
+#ifndef LUA_ENGINE_USE_DEFAULT_PRINT
+    lua_pushcfunction( ctx, _print );
+    lua_setglobal( ctx, "print" );
+#endif
+    lua_pushcfunction( ctx, dbgout );
+    lua_setglobal( ctx, "dbgout" );
+    lua_pushcfunction( ctx, _prettyTraceLoc );
+    lua_setglobal( ctx, "_prettyTraceLoc" );
+
+    if( d_debugging )
+    {
+        d_debugging = false;
+        setDebug(true);
+    }
+    if( d_aliveSignal )
+    {
+        d_aliveSignal = false;
+        setAliveSignal(true);
+    }
+    return true;
 }
 
 void Engine2::addLibrary(Lib what)

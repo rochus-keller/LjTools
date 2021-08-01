@@ -59,6 +59,7 @@ namespace Lua
 		void addLibrary( Lib );
 		void addStdLibs();
         void setPrintToStdout(bool on) { d_printToStdout = on; }
+        bool restart();
 
         typedef QSet<quint32> Breaks;
         typedef QMap<QByteArray,Breaks> BreaksPerScript; // filename -> line numbers
