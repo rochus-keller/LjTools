@@ -7,14 +7,14 @@ The goal of this project (work in progress) is to better understand how LuaJIT w
 The viewer can be used to edit and compile Lua source code and display it side by side with its corresponding LuaJIT bytecode. The test VM implements a subset of LuaJIT bytecodes to study and validate their functions (see the examples subfolder).
 
 Here is a Lua BcViewer screenshot:
-![LjBcViewer Screenshot](http://software.rochus-keller.info/LjBcViewer_screenshot_1.png)
+![LjBcViewer Screenshot](http://software.rochus-keller.ch/LjBcViewer_screenshot_1.png)
 
 
-The assembler can be used to directly program and test with LuaJIT bytecode. The syntax is defined in LjAsm.ebnf; here is a PDF: http://software.rochus-keller.info/LjAsm_Syntax.pdf. It slightly abstracts from original LuaJIT bytecode and supports automatic register allocation. Documentation of the syntax is TBD; varargs and for loops are not yet supported (because most likely not used by the new front ends).
+The assembler can be used to directly program and test with LuaJIT bytecode. The syntax is defined in LjAsm.ebnf; here is a PDF: http://software.rochus-keller.ch/LjAsm_Syntax.pdf. It slightly abstracts from original LuaJIT bytecode and supports automatic register allocation. Documentation of the syntax is TBD; varargs and for loops are not yet supported (because most likely not used by the new front ends).
 The editor supports semantic highlighting and navigation (CTRL+Click on ident), and shows a list of cross-references when an ident is selected.
 
 Here is an Asm Editor screenshot:
-![LjAsmEditor Screenshot](http://software.rochus-keller.info/LjAsmEditor_screenshot_1.png)
+![LjAsmEditor Screenshot](http://software.rochus-keller.ch/LjAsmEditor_screenshot_1.png)
 
 
 ### Lua parser and IDE features
@@ -33,20 +33,20 @@ Here is an Asm Editor screenshot:
 - A stack trace is also shown if TRAP evaluating to true is executed
 
 
-![Lua IDE Screenshot](http://software.rochus-keller.info/screenshot_luaide_0.1.png)
+![Lua IDE Screenshot](http://software.rochus-keller.ch/screenshot_luaide_0.1.png)
 
 ### LuaJIT bytecode debugger
 
 The bytecode debugger supports single step debugging of LuaJIT bytecode. It can do step-in, step-over and step-out, as well as stop at configurable breakpoints. All features are accessible by GUI. The debugger is embeddable to other applications, currently by SomLjVirtualMachine (see https://github.com/rochus-keller/som/). The debugger depends on commit ccc257a of https://github.com/rochus-keller/LuaJIT/tree/LjTools for the required bytecode program counter resolution. With each break or step the local variables including unnamed temporary registers are displayed as well as the stack trace. You can double-click on the stack levels to change to the corresponding local variable set.
 
-![LuaJIT Bytecode Debugger Screenshot](http://software.rochus-keller.info/screenshot_luajit_bytecode_debugger_v0.1.png)
+![LuaJIT Bytecode Debugger Screenshot](http://software.rochus-keller.ch/screenshot_luajit_bytecode_debugger_v0.1.png)
 
 
 ### Binary Versions
 
-Here is a precompiled version of LjAsmEditor for Linux i386: http://software.rochus-keller.info/LjAsmEditor_linux32.tar.gz
+Here is a precompiled version of LjAsmEditor for Linux i386: http://software.rochus-keller.ch/LjAsmEditor_linux32.tar.gz
 
-Here is a precompiled version of LjBcViewer for Linux i386: http://software.rochus-keller.info/LjBcViewer_linux32.tar.gz
+Here is a precompiled version of LjBcViewer for Linux i386: http://software.rochus-keller.ch/LjBcViewer_linux32.tar.gz
 
 Both versions require a working Qt 5.x base package and printsupport compatible with i386; LuaJIT is statically linked with the binaries.
 
