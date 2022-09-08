@@ -728,9 +728,15 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
         }
         break;
     case JitBytecode::Instruction::_str:
-        return tostring( f->d_constObjs[ f->d_constObjs.size() - v - 1] );
+        if( v >= 0 && v < f->d_constObjs.size() )
+            return tostring( f->d_constObjs[ f->d_constObjs.size() - v - 1] );
+        else
+            return "<invalid string>";
     case JitBytecode::Instruction::_num:
-        return QByteArray::number( f->d_constNums[v].toDouble() );
+        if( v >= 0 && v < f->d_constNums.size())
+            return QByteArray::number( f->d_constNums[v].toDouble() );
+        else
+            return "<invalid number>";
     case JitBytecode::Instruction::_pri:
         return getPriConst(v);
     case JitBytecode::Instruction::_cdata:
@@ -771,13 +777,17 @@ QByteArray Disasm::renderArg(const JitBytecode::Function* f, int t, int v, int p
         break;
     case JitBytecode::Instruction::_func:
         {
-            JitBytecode::FuncRef fr = f->d_constObjs[ f->d_constObjs.size() - v - 1 ].value<JitBytecode::FuncRef>();
+            const int i = f->d_constObjs.size() - v - 1;
+            if( i < 0 || i >= f->d_constObjs.size() )
+                return "<invalid const>";
+            JitBytecode::FuncRef fr = f->d_constObjs[ i ].value<JitBytecode::FuncRef>();
             if( fr.data() != 0 )
                 return QString("F%1").arg(fr->d_id).toUtf8();
         }
         break;
     case JitBytecode::Instruction::_tab:
-        if( f->d_constObjs[ f->d_constObjs.size() - v - 1 ].canConvert<JitBytecode::ConstTable>() )
+        if( v >= 0 && v < f->d_constObjs.size() &&
+                f->d_constObjs[ f->d_constObjs.size() - v - 1 ].canConvert<JitBytecode::ConstTable>() )
         {
             QByteArray str;
             QTextStream out(&str);

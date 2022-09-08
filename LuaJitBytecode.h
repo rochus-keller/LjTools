@@ -81,8 +81,8 @@ namespace Lua
             QByteArray getVarName( int pc, int slot, int* idx = 0 ) const;
             void calcVarNames() const;
             bool isStripped() const { return d_lines.isEmpty() && d_upNames.isEmpty() && d_vars.isEmpty(); }
-            quint16 getUpval( int i ) const { return d_upvals[i] & ~( UvImmutableMask | UvLocalMask ); }
-            bool isLocalUpval( int i ) const { return d_upvals[i] & UvLocalMask; }
+            quint16 getUpval( int i ) const { return (i>=0&&i<d_upvals.size())? d_upvals[i] & ~( UvImmutableMask | UvLocalMask ):0; }
+            bool isLocalUpval( int i ) const { return (i>=0&&i<d_upvals.size())?d_upvals[i] & UvLocalMask : false; }
             bool isImmutableUpval( int i ) const  { return d_upvals[i] & UvImmutableMask; }
             QPair<quint8,Function*> getFuncSlotFromUpval(quint8) const;
             quint32 lastLine() const { return d_firstline + d_numline - 1; } // returns packed

@@ -130,11 +130,17 @@ MainWindow::~MainWindow()
 
 void MainWindow::loadFile(const QString& path)
 {
-    d_edit->loadFromFile(path);
     QDir::setCurrent(QFileInfo(path).absolutePath());
-    onCaption();
+    JitBytecode bc;
+    if( bc.parse(path) )
+        d_bcv->loadFrom(path);
+    else
+    {
+        d_edit->loadFromFile(path);
+        onCaption();
 
-    compile();
+        compile();
+    }
 }
 
 void MainWindow::logMessage(const QString& str, bool err)
