@@ -23,7 +23,9 @@
 #include <QKeyEvent>
 #include <QApplication>
 #include <QClipboard>
+#ifdef QT_PRINTER_LIB
 #include <QPrinter>
+#endif
 #include <QFileDialog>
 #include <QFile>
 #include <QShortcut>
@@ -360,6 +362,7 @@ void Terminal2::onClear()
 
 void Terminal2::handleExportPdf()
 {
+#ifdef QT_PRINTER_LIB
     ENABLED_IF( true );
 	QPrinter p( QPrinter::HighResolution );
 	p.setOutputFormat( QPrinter::PdfFormat );
@@ -373,6 +376,7 @@ void Terminal2::handleExportPdf()
 		return;
 	p.setOutputFileName( path );
 	print( &p );
+#endif
 }
 
 void Terminal2::handleSaveAs()
