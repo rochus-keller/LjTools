@@ -23,6 +23,9 @@
 #include <QBitArray>
 using namespace Lua;
 
+quint32 JitComposer::colBitLen = 12;
+quint32 JitComposer::rowColBitLen = 31;
+
 JitComposer::JitComposer(QObject *parent) : QObject(parent),d_hasDebugInfo(false),d_stripped(false),d_useRowColFormat(true)
 {
 
@@ -60,9 +63,8 @@ int JitComposer::openFunction(quint8 parCount, const QByteArray& sourceRef, quin
     f->d_sourceFile = sourceRef;
     if( d_hasDebugInfo )
     {
-        if( isPacked(firstLine) )
+        if( isRowCol() )
         {
-            Q_ASSERT( isPacked(lastLine) );
             if( !d_useRowColFormat )
             {
                 firstLine = unpackRow(firstLine);
@@ -141,11 +143,11 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, q
             if( line < d_bc.d_fstack.back()->d_firstline ||
                     line > ( d_bc.d_fstack.back()->d_firstline + d_bc.d_fstack.back()->d_numline - 1 ))
                 qWarning() << "JitComposer::addOpImp: line number not in function" <<
-                              d_bc.d_name << unpackRow2(line) << unpackCol2(line);
-            else if( d_useRowColFormat && isPacked(line) && ( unpackRow(line) == 0 || unpackCol(line) == 0 ) )
+                              d_bc.d_name << unpackRow(line) << unpackCol(line);
+            else if( d_useRowColFormat && isRowCol() && ( unpackRow(line) == 0 || unpackCol(line) == 0 ) )
                 qWarning() << "JitComposer::addOpImp: invalid row or column number" <<
-                              d_bc.d_name << unpackRow2(line) << unpackCol2(line);
-            if( !d_useRowColFormat && isPacked(line) )
+                              d_bc.d_name << unpackRow(line) << unpackCol(line);
+            if( !d_useRowColFormat && isRowCol() )
                 line = unpackRow(line);
             d_bc.d_fstack.back()->d_lines.append(line);
         }else
@@ -571,7 +573,11 @@ bool JitComposer::JMP(SlotNr base, Jump offset, quint32 line)
 
 bool JitComposer::KNIL(SlotNr base, quint8 len, quint32 line )
 {
-    return addAd(JitBytecode::OP_KNIL, base, base + len - 1, line );
+    if( len == 1 )
+        // there is apparently an issue in LJ when using KNIL for just one slot
+        return addAd(JitBytecode::OP_KPRI, base, 0, line ); // (0 = nil, 1 = false, 2 = true)
+    else
+        return addAd(JitBytecode::OP_KNIL, base, base + len - 1, line );
 }
 
 void JitComposer::setUpvals(const JitComposer::UpvalList& l)
@@ -793,10 +799,14 @@ int JitComposer::lowestUnusedSlot(const JitComposer::SlotPool& pool, int start)
 
 quint32 JitComposer::packRowCol(quint32 row, quint32 col)
 {
-    static const quint32 maxRow = ( 1 << ROW_BIT_LEN ) - 1;
-    static const quint32 maxCol = ( 1 << COL_BIT_LEN ) - 1;
+    static const quint32 maxRow = ( 1 << (rowColBitLen - colBitLen) ) - 1;
+    static const quint32 maxCol = ( 1 << colBitLen ) - 1;
     Q_ASSERT( row <= maxRow && col <= maxCol );
-    return ( row << COL_BIT_LEN ) | col | MSB;
+    if( row > maxRow )
+        row = maxRow;
+    if( col > maxCol )
+        col = maxCol;
+    return ( row << colBitLen ) | col;
 }
 
 bool JitComposer::allocateWithLinearScan(SlotPool& pool, JitComposer::Intervals& vars, int len)

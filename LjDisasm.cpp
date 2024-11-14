@@ -417,8 +417,8 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
     if( !f->isStripped() )
     {
         out << "\t-- lines ";
-        out << JitComposer::unpackRow2(f->d_firstline) << " to " <<
-                   JitComposer::unpackRow2(f->lastLine() );
+        out << JitComposer::unpackRow(f->d_firstline) << " to " <<
+                   JitComposer::unpackRow(f->lastLine() );
     }
     out << endl;
 
@@ -638,7 +638,7 @@ bool Disasm::writeFunc(QTextStream& out, const JitBytecode::Function* f, bool st
                 {
                     lastLine = f->d_lines[pc];
                     out << "\t\t-- ";
-                    if( JitComposer::isPacked(lastLine) )
+                    if( JitComposer::isRowCol() )
                         out << JitComposer::unpackRow(lastLine) << ":" << JitComposer::unpackCol(lastLine);
                     else
                         out << lastLine;

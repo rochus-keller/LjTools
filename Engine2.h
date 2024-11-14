@@ -150,6 +150,7 @@ namespace Lua
         bool pushFunction( const QByteArray& source, const QByteArray& name = QByteArray() );
         bool runFunction( int nargs = 0, int nresults = 0 ); // Stack pre: func, par1..parN; post: -
         bool addSourceLib( const QByteArray& source, const QByteArray& libname );
+        bool addPreloadLib( const QByteArray& source, const QByteArray& libname );
         bool isExecuting() const { return d_running; }
         bool saveBinary( const QByteArray& source, const QByteArray& name, const QByteArray& path );
 		static QByteArray getBinaryFromFunc(lua_State *L); // erwartet Func bei -1

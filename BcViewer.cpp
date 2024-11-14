@@ -33,7 +33,7 @@ enum { LnrType = 10 };
 
 static QString printRowCol( quint32 rowCol )
 {
-    if( JitComposer::isPacked(rowCol) )
+    if( JitComposer::isRowCol() )
         return QString("%1:%2").arg(JitComposer::unpackRow(rowCol)).arg(JitComposer::unpackCol(rowCol));
     else
         return QString::number(rowCol);
@@ -143,8 +143,8 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
     fi->setFont(0,bold);
     if( !d_bc.isStripped() )
     {
-        fi->setText(2,QString::number(JitComposer::unpackRow2(f.d_firstline)));
-        fi->setText(3,QString::number(JitComposer::unpackRow2(f.lastLine())));
+        fi->setText(2,QString::number(JitComposer::unpackRow(f.d_firstline)));
+        fi->setText(3,QString::number(JitComposer::unpackRow(f.lastLine())));
         fi->setData(2,Qt::UserRole,f.d_firstline);
     }
     if( f.d_flags & 0x02 )
@@ -189,8 +189,8 @@ QTreeWidgetItem* BcViewer::addFunc(const JitBytecode::Function* fp, QTreeWidgetI
                 ci->setText(0,tr("function %1").arg(fp->d_id));
                 if( !d_bc.isStripped() )
                 {
-                    ci->setText(2,QString::number(JitComposer::unpackRow2(fp->d_firstline)));
-                    ci->setText(3,QString::number(JitComposer::unpackRow2(fp->lastLine())));
+                    ci->setText(2,QString::number(JitComposer::unpackRow(fp->d_firstline)));
+                    ci->setText(3,QString::number(JitComposer::unpackRow(fp->lastLine())));
                 }
 #else
                 ci = addFunc(fp,t);

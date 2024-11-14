@@ -34,7 +34,7 @@ enum { FuncType = 10, VarsType, CodeType, LineType };
 
 static QString printRowCol( quint32 rowCol )
 {
-    if( JitComposer::isPacked(rowCol) )
+    if( JitComposer::isRowCol() )
         return QString("%1:%2").arg(JitComposer::unpackRow(rowCol)).arg(JitComposer::unpackCol(rowCol));
     else
         return QString::number(rowCol);
@@ -101,7 +101,7 @@ void BcViewer2::gotoLine(quint32 lnr)
 {
     Q_ASSERT( !d_lock );
     d_lock = true;
-    Items::const_iterator i = d_items.find(JitComposer::unpackRow2(lnr));
+    Items::const_iterator i = d_items.find(JitComposer::unpackRow(lnr));
     if( i != d_items.end() )
     {
         QTreeWidgetItem * hit = 0;
@@ -295,7 +295,7 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
     fi->setFont(0,bold);
     if( !d_bc.isStripped() )
     {
-        const quint32 line = JitComposer::unpackRow2(f.d_firstline);
+        const quint32 line = JitComposer::unpackRow(f.d_firstline);
         fi->setText(2,printRowCol(f.d_firstline));
         fi->setText(3,printRowCol(f.lastLine()));
         fi->setData(2,Qt::UserRole,f.d_firstline);
@@ -370,7 +370,7 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
             mnemonic = Ljas::Disasm::s_opName[op];
             ci->setText(0,mnemonic);
             ci->setData(0,Qt::UserRole, j );
-            ci->setData(1,Qt::UserRole,JitComposer::unpackRow2(f.d_firstline));
+            ci->setData(1,Qt::UserRole,JitComposer::unpackRow(f.d_firstline));
             ci->setToolTip(0, Ljas::Disasm::s_opHelp[op]);
             ci->setText(1,QString::number(j));
             if( !f.d_lines.isEmpty() )
@@ -378,7 +378,7 @@ QTreeWidgetItem* BcViewer2::addFunc(const JitBytecode::Function* fp, QTreeWidget
                 Q_ASSERT( f.d_byteCodes.size() == f.d_lines.size() );
                 ci->setText(2,printRowCol(f.d_lines[j]));
                 ci->setData(2,Qt::UserRole,f.d_lines[j] );
-                d_items[JitComposer::unpackRow2(f.d_lines[j])].append(ci);
+                d_items[JitComposer::unpackRow(f.d_lines[j])].append(ci);
             }
             ci->setText(3, Ljas::Disasm::renderArg(&f,bc.d_ta, bc.d_a, j, false, true ) );
             ci->setToolTip(3, ci->text(3) );
@@ -395,7 +395,7 @@ QTreeWidgetItem*BcViewer2::findItem(quint32 func, quint16 pc) const
 {
     QTreeWidgetItem* item = 0;
 
-    if( JitComposer::isPacked(func) )
+    if( JitComposer::isRowCol() )
         item = d_funcs.value(func);
     else
     {

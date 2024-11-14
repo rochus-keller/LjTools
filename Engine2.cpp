@@ -36,6 +36,7 @@ static const char* s_path = "path";
 static const char* s_cpath = "cpath";
 static Engine2::Breaks s_dummy;
 static const int s_aliveCount = 10000;
+static QMap<QByteArray,QByteArray> preloads; // name -> buffer
 
 int Engine2::_print (lua_State *L)
 {
@@ -75,6 +76,7 @@ int Engine2::_print (lua_State *L)
     return 0;
 }
 
+extern "C" {
 static int dbgout(lua_State* L)
 {
     const int top = lua_gettop(L);
@@ -136,9 +138,27 @@ static int dbgout(lua_State* L)
     return 0;
 }
 
+static int doPreload(lua_State* L)
+{
+    const char* name = lua_tostring(L,-1);
+
+    if( preloads.contains(name) )
+    {
+        QByteArray source = preloads.value(name);
+        const int status = luaL_loadbuffer( L, source, source.size(), name );
+        if( status != 0 )
+            lua_error(L);
+        lua_call(L,0,1);
+    }else
+        lua_pushnil(L);
+
+    return 1;
+}
+
 static int _flush(lua_State* L)
 {
     return 0; // NOP
+}
 }
 
 int Engine2::_writeStdout(lua_State* L)
@@ -197,7 +217,7 @@ int Engine2::_prettyTraceLoc(lua_State* L)
         QByteArray res = loc.left(colon+1);
         if( res.startsWith("0x") && !source.isEmpty() )
             res = QFileInfo(source).fileName().toUtf8() + ":"; // rhs is already linedefined
-        if( JitComposer::isPacked(line) )
+        if( JitComposer::isRowCol() )
             res +=  QByteArray::number( JitComposer::unpackRow(line) ) + ":"
                     + QByteArray::number( JitComposer::unpackCol(line) );
         else
@@ -629,6 +649,26 @@ bool Engine2::addSourceLib(const QByteArray& source, const QByteArray& libname)
     return true;
 }
 
+bool Engine2::addPreloadLib(const QByteArray& source, const QByteArray& libname)
+{
+    if( d_waitForCommand )
+    {
+        d_lastError = "Cannot run another Lua function while script is waiting in debugger!";
+        return false;
+    }
+
+    preloads[libname] = source;
+
+    lua_getfield(d_ctx, LUA_GLOBALSINDEX, "package"); // stack: package
+    lua_getfield(d_ctx, -1, "preload"); // stack: package preload
+    const int preload = lua_gettop(d_ctx);
+    lua_pushstring(d_ctx, libname.constData() );
+    lua_pushcfunction(d_ctx, doPreload);
+    lua_rawset(d_ctx,preload);
+
+    return true;
+}
+
 void Engine2::collect()
 {
 	if( d_ctx )
@@ -765,10 +805,10 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
     switch( e->d_mode )
     {
     case LineMode:
-        if( e->d_stepOverSync && e->d_stepCallDepth == 0 && JitComposer::isPacked(l.d_line) )
+        if( e->d_stepOverSync && e->d_stepCallDepth == 0 && JitComposer::isRowCol() )
             e->d_dbgCmd = StepOver; // happens if arg or a call is yet another call on the same line
         else
-            lineChanged = ( JitComposer::unpackRow2(e->d_curRowCol) != JitComposer::unpackRow2(l.d_line) ||
+            lineChanged = ( JitComposer::unpackRow(e->d_curRowCol) != JitComposer::unpackRow(l.d_line) ||
                         e->d_curScript != l.d_source );
         break;
     case RowColMode:
@@ -779,7 +819,7 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
 
     e->d_curScript = l.d_source;
     if( e->d_mode == PcMode )
-        e->d_curRowCol = packDeflinePc( JitComposer::unpackRow2(l.d_lineDefined),l.d_line);
+        e->d_curRowCol = packDeflinePc( JitComposer::unpackRow(l.d_lineDefined),l.d_line);
     else
         e->d_curRowCol = l.d_line;
 
@@ -1190,7 +1230,7 @@ Engine2::StackLevel Engine2::getStackLevel(lua_State *L, quint16 level, bool wit
             {
                 lua_pop(L, 1); // remove unused value
                 const quint32 line = bytecodeMode ?
-                            lua_tointeger(L, -1 ) : JitComposer::unpackRow2(lua_tointeger(L, -1 ));
+                            lua_tointeger(L, -1 ) : JitComposer::unpackRow(lua_tointeger(L, -1 ));
                 l.d_lines.insert(line);
             }
             lua_pop(L, 2); // key and t
@@ -1557,7 +1597,7 @@ quint32 Engine2::lineForBreak() const
 {
     if( d_mode == LineMode )
     {
-        return JitComposer::unpackRow2(d_curRowCol);
+        return JitComposer::unpackRow(d_curRowCol);
     }else
         return d_curRowCol;
 }
@@ -1568,7 +1608,7 @@ int Engine2::lineForNotify() const
     {
     case LineMode:
     case RowColMode:
-        return JitComposer::unpackRow2(d_curRowCol);
+        return JitComposer::unpackRow(d_curRowCol);
     case PcMode:
         return unpackDeflinePc(d_curRowCol).second;
     }
