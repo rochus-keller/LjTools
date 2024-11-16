@@ -665,6 +665,16 @@ bool Engine2::addPreloadLib(const QByteArray& source, const QByteArray& libname)
     lua_pushstring(d_ctx, libname.constData() );
     lua_pushcfunction(d_ctx, doPreload);
     lua_rawset(d_ctx,preload);
+    lua_pop(d_ctx,1); // remove preload
+
+    // remove a possibly remaining version of the last run from package.loaded
+    // so it is loaded (and the module function is run) again
+    lua_getfield(d_ctx, -1, "loaded"); // stack: package loaded
+    const int loaded = lua_gettop(d_ctx);
+    lua_pushnil(d_ctx); // stack: package loaded nil
+    lua_setfield(d_ctx, loaded, libname.constData() ); // stack: package loaded
+
+    lua_pop(d_ctx,2); // remove package loaded
 
     return true;
 }
