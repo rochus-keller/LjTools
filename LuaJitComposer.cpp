@@ -378,8 +378,8 @@ bool JitComposer::KSET(SlotNr dst, const QVariant& v, quint32 line )
             return addAd(JitBytecode::OP_KNUM, dst, getConstSlot(v), line );
         else
         {
-            if( v.toInt() >= SHRT_MIN && v.toInt() <= SHRT_MAX )
-                return addAd(JitBytecode::OP_KSHORT, dst, (quint16)v.toInt(), line );
+            if( v.toLongLong() >= SHRT_MIN && v.toLongLong() <= SHRT_MAX )
+                return addAd(JitBytecode::OP_KSHORT, dst, (quint16)v.toLongLong(), line );
             else
                 return addAd(JitBytecode::OP_KNUM, dst, getConstSlot(v), line );
         }
