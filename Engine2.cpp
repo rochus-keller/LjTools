@@ -1539,6 +1539,7 @@ QVariant Engine2::getValue(int arg, quint8 resolveTableToLevel, int maxArrayInde
             lua_pop(d_ctx,1);
             return str;
         }// else
+    case 10: // CDATA
         return QVariant::fromValue(VarAddress(luaToValType(t), lua_topointer(d_ctx,arg), metapointer(d_ctx,arg) ));
     }
     return QVariant();
@@ -1622,4 +1623,5 @@ int Engine2::lineForNotify() const
     case PcMode:
         return unpackDeflinePc(d_curRowCol).second;
     }
+    return 0;
 }
