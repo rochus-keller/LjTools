@@ -161,13 +161,15 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, q
     return true;
 }
 
-bool JitComposer::addAbc(JitBytecode::Op op, quint8 a, quint8 b, quint8 c, quint32 line)
+bool JitComposer::addAbc(JitBytecode::Op op, quint8 a, quint8 b, int c, quint32 line)
 {
+    Q_ASSERT( c >= 0 && c <= 255 );
     return addOpImp( op, a, b, c, line );
 }
 
-bool JitComposer::addAd(JitBytecode::Op op, quint8 a, quint16 d, quint32 line)
+bool JitComposer::addAd(JitBytecode::Op op, quint8 a, int d, quint32 line)
 {
+    Q_ASSERT( d >= 0 && d <= 0xffff);
     return addOpImp( op, a, 0, d, line );
 }
 
@@ -447,7 +449,8 @@ bool JitComposer::TSETi(JitComposer::SlotNr value, JitComposer::SlotNr table, qu
 
 bool JitComposer::TSET(JitComposer::SlotNr value, JitComposer::SlotNr table, const QByteArray& index, quint32 line)
 {
-    return addAbc(JitBytecode::OP_TSETS, value, table, getConstSlot(index), line );
+    const int slot = getConstSlot(index);
+    return addAbc(JitBytecode::OP_TSETS, value, table, slot, line );
 }
 
 bool JitComposer::UCLO(SlotNr slot, Jump offset, quint32 line)

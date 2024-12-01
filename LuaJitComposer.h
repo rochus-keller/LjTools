@@ -76,8 +76,8 @@ namespace Lua
         int openFunction(quint8 parCount, const QByteArray& sourceRef, quint32 firstLine = 0, quint32 lastLine = 0 );
         bool closeFunction(quint8 frameSize);
 
-        bool addAbc( JitBytecode::Op, quint8 a, quint8 b, quint8 c, quint32 line = 0 );
-        bool addAd(JitBytecode::Op, quint8 a, quint16 d, quint32 line = 0 );
+        bool addAbc( JitBytecode::Op, quint8 a, quint8 b, int c, quint32 line = 0 );
+        bool addAd(JitBytecode::Op, quint8 a, int d, quint32 line = 0 );
         int getCurPc() const;
         bool patch( quint32 pc, qint16 off ); // pc points to a jump, off is the new offset for the jump
         bool patch( quint32 label ) { return patch( label, getCurPc() - label ); }
