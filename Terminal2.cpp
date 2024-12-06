@@ -320,6 +320,7 @@ void Terminal2::onNotify(int messageType, QByteArray val1, int val2)
     }
     //msg.consume();
 	ensureCursorVisible();
+    QApplication::processEvents();
 }
 
 void Terminal2::clear()

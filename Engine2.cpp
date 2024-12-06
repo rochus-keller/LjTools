@@ -737,41 +737,10 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
 
     const StackLevel l = e->getStackLevel(0,false,ar);
 
-#if 0
-    {
-        QByteArray action;
-        int depth = e->d_stepCallDepth;
-        switch(ar->event)
-        {
-        case LUA_HOOKRET:
-            if( !l.d_inC )
-                depth--;
-            action = "RETURN";
-            break;
-        case LUA_HOOKCALL:
-            if( !l.d_inC )
-                depth++;
-            if( l.d_inC )
-                action = "NATIVE_CALL";
-            else
-                action = "CALL";
-            break;
-        case LUA_HOOKLINE:
-            action = "LINE";
-            break;
-        case LUA_HOOKCOUNT:
-            action = "COUNT";
-            break;
-        case LUA_HOOKTAILRET:
-            action = "TAILRET";
-            break;
-        }
+    const quint32 wasRow = JitComposer::unpackRow(e->d_curRowCol);
+    const quint32 isRow = JitComposer::unpackRow(l.d_line);
 
-        qDebug() << "Engine2::debugHook" << "calldepth" << depth << action
-                 << l.d_source << JitComposer::unpackRow2(l.d_line) << JitComposer::unpackCol2(l.d_line);
-    }
-#endif
-
+    // NOTE: LUA_HOOKTAILRET is defined in lua.h, but never used!
     if( ar->event == LUA_HOOKCALL )
     {
         // HOOKRET comes when already in the function to be called
@@ -782,7 +751,8 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         }
         return;
     }
-    if( ar->event == LUA_HOOKRET ) // LUA_HOOKRET isn't fired in case of CALLT!!! Use _LJTOOLS_DONT_CREATE_TAIL_CALLS to avoid.
+    if( ar->event == LUA_HOOKRET )
+        // LUA_HOOKRET isn't fired in case of CALLT!!! Use _LJTOOLS_DONT_CREATE_TAIL_CALLS to avoid.
     {
         // HOOKRET comes when still in the returning function; even the pc is still the same as the previous HOOKLINE
         if( e->d_dbgCmd == StepOut || e->d_dbgCmd == StepOver )
@@ -790,7 +760,8 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
             Q_ASSERT( !l.d_inC && !e->d_stepBreak.first.isEmpty() ); // see runToNextLine
 
             e->d_stepCallDepth--;
-            if(  e->d_stepCallDepth < 0 && e->d_stepBreak.first == l.d_source &&
+            if(  e->d_stepCallDepth < 0 &&
+                    e->d_stepBreak.first == l.d_source &&
                     e->d_stepBreak.second == l.d_lineDefined )
                 e->d_dbgCmd = Engine2::StepNext;
                 // Change StepOut to StepNext if we leave the function in which StepOut was called (i.e. callDepth<0)
@@ -818,8 +789,7 @@ void Engine2::debugHook(lua_State *L, lua_Debug *ar)
         if( e->d_stepOverSync && e->d_stepCallDepth == 0 && JitComposer::isRowCol() )
             e->d_dbgCmd = StepOver; // happens if arg or a call is yet another call on the same line
         else
-            lineChanged = ( JitComposer::unpackRow(e->d_curRowCol) != JitComposer::unpackRow(l.d_line) ||
-                        e->d_curScript != l.d_source );
+            lineChanged = ( wasRow != isRow || e->d_curScript != l.d_source );
         break;
     case RowColMode:
     case PcMode:
