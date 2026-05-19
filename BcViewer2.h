@@ -21,7 +21,11 @@
 */
 
 #include <QTreeWidget>
+#ifdef USE_JITCOMPOSER2
+#include "LuaJitBytecode2.h"
+#else
 #include "LuaJitBytecode.h"
+#endif
 
 class QTextStream;
 

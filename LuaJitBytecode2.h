@@ -1,8 +1,8 @@
-#ifndef LUAJITBYTECODE_H
-#define LUAJITBYTECODE_H
+#ifndef LUAJITBYTECODE2_H
+#define LUAJITBYTECODE2_H
 
 /*
-* Copyright 2019, 2020 Rochus Keller <mailto:me@rochus-keller.ch>
+* Copyright 2019, 2020, 2026 Rochus Keller <mailto:me@rochus-keller.ch>
 *
 * This file is part of the JuaJIT BC Viewer application.
 *
@@ -33,6 +33,7 @@ namespace Lua
     class JitBytecode : public QObject
     {
     public:
+        enum LjVersion { LJ_V_2_0 = 1, LJ_V_2_1 = 2 };
         typedef QVector<quint32> CodeList;
         typedef QVector<quint16> UpvalList;
         typedef QVector<QVariant> VariantList;
@@ -146,6 +147,13 @@ namespace Lua
         };
 
         explicit JitBytecode(QObject *parent = 0);
+
+        void setVersion(LjVersion v);
+        LjVersion getVersion() const { return d_version; }
+        bool isFR2() const { return d_fr2; }
+        static quint8 mapOp20to21(quint8 op20);
+        static quint8 mapOp21to20(quint8 op21);
+
         bool parse( const QString& file );
         bool parse(QIODevice* in , const QString& path = QString());
         bool write(QIODevice* out, const QString& path = QString() );
@@ -184,6 +192,8 @@ namespace Lua
         QList<FuncRef> d_funcs;
         QList<FuncRef> d_fstack;
         quint8 d_flags;
+        LjVersion d_version;
+        bool d_fr2;
     };
 }
 
@@ -191,4 +201,4 @@ Q_DECLARE_METATYPE(Lua::JitBytecode::ConstTable)
 Q_DECLARE_METATYPE(Lua::JitBytecode::FuncRef)
 uint qHash(const QVariant& v, uint seed = 0);
 
-#endif // LUAJITBYTECODE_H
+#endif // LUAJITBYTECODE2_H

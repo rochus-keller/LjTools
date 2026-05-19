@@ -18,6 +18,7 @@
 */
 
 #include "LuaJitEngine.h"
+#include "LuaJitHelper.h"
 #include <QFileInfo>
 #include <QtDebug>
 #include <lj_bc.h>
@@ -346,7 +347,7 @@ bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::Instruction& b
     const QVariant lhs = getSlotVal(f, bc.d_a );
     const QVariant rhs = getSlotVal(f, bc.getCd() );
     bool res = false;
-    if( JitBytecode::isNumber( lhs ) && JitBytecode::isNumber( rhs ) )
+    if( JitValue::isNumber( lhs ) && JitValue::isNumber( rhs ) )
     {
         switch( bc.d_op )
         {
@@ -365,7 +366,7 @@ bool JitEngine::doCompare(JitEngine::Frame& f, const JitBytecode::Instruction& b
         default:
             break;
         }
-    }else if( JitBytecode::isString( lhs ) && JitBytecode::isString( rhs ) )
+    }else if( JitValue::isString( lhs ) && JitValue::isString( rhs ) )
     {
         switch( bc.d_op )
         {
@@ -450,8 +451,8 @@ bool JitEngine::doEquality(JitEngine::Frame& f, const JitBytecode::Instruction& 
         break;
     }
     bool res = false;
-    if( ( JitBytecode::isNumber( lhs ) && JitBytecode::isNumber( rhs ) ) ||
-            ( JitBytecode::isString( lhs ) && JitBytecode::isString( rhs ) ) )
+    if( ( JitValue::isNumber( lhs ) && JitValue::isNumber( rhs ) ) ||
+            ( JitValue::isString( lhs ) && JitValue::isString( rhs ) ) )
     {
         switch( bc.d_op )
         {
@@ -580,7 +581,7 @@ bool JitEngine::doArith(JitEngine::Frame& f, const JitBytecode::Instruction& bc)
         break;
     }
 
-    if( JitBytecode::isNumber(lhs) && JitBytecode::isNumber(rhs) )
+    if( JitValue::isNumber(lhs) && JitValue::isNumber(rhs) )
     {
         switch( bc.d_op )
         {
@@ -943,7 +944,7 @@ bool JitEngine::run(Frame* outer, Closure* c, QVariantList& inout)
         case BC_UNM:
             {
                 QVariant val = getSlotVal( f, bc.getCd() );
-                if( JitBytecode::isNumber(val) )
+                if( JitValue::isNumber(val) )
                     setSlotVal(f, bc.d_a, -val.toDouble() );
                 else
                 {

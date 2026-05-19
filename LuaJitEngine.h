@@ -24,7 +24,11 @@
 #include <QSet>
 #include <QVariant>
 #include <QPointer>
-#include <LjTools/LuaJitBytecode.h>
+#ifdef USE_JITCOMPOSER2
+#include "LuaJitBytecode2.h"
+#else
+#include "LuaJitBytecode.h"
+#endif
 
 namespace Lua
 {

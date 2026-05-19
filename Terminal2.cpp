@@ -286,12 +286,12 @@ void Terminal2::onNotify(int messageType, QByteArray val1, int val2)
     switch( messageType )
     {
 	case Engine2::Print:
-		printText( val1 );
+        printText( val1 );
 		break;
 	case Engine2::Error:
         d_out.insertText( val1, s_errf );
         d_out.insertText( QString( QChar::ParagraphSeparator ), s_pf );
-		moveCursor( QTextCursor::End );
+        moveCursor( QTextCursor::End );
         break;
     case Engine2::Cout:
     case Engine2::Cerr:

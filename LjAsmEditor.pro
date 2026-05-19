@@ -33,6 +33,7 @@ SOURCES += LjAsmEditor.cpp \
     LuaHighlighter.cpp \
     LuaJitBytecode.cpp \
     Engine2.cpp \
+    LuaJitHelper.cpp \
     Terminal2.cpp \
     ExpressionParser.cpp \
     LuaJitEngine.cpp \
@@ -55,6 +56,7 @@ HEADERS  += LjAsmEditor.h \
     LuaHighlighter.h \
     LuaJitBytecode.h \
     Engine2.h \
+    LuaJitHelper.h \
     Terminal2.h \
     ExpressionParser.h \
     LuaJitEngine.h \

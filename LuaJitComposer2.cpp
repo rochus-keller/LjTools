@@ -1,5 +1,5 @@
 /*
-* Copyright 2019, 2020 Rochus Keller <mailto:me@rochus-keller.ch>
+* Copyright 2019, 2020, 2026 Rochus Keller <mailto:me@rochus-keller.ch>
 *
 * This file is part of the JuaJIT BC Viewer application.
 *
@@ -17,15 +17,20 @@
 * http://www.gnu.org/copyleft/gpl.html.
 */
 
-#include "LuaJitComposer.h"
+#include "LuaJitComposer2.h"
 #include <QtDebug>
 #include <QFile>
 #include <QBitArray>
+#include <luajit.h>
 using namespace Lua;
 
 JitComposer::JitComposer(QObject *parent) : QObject(parent),d_hasDebugInfo(false),d_stripped(false),d_useRowColFormat(true)
 {
-
+#if defined(LUAJIT_VERSION_NUM) && LUAJIT_VERSION_NUM >= 20100
+    d_bc.setVersion(JitBytecode::LJ_V_2_1);
+#else
+    d_bc.setVersion(JitBytecode::LJ_V_2_0);
+#endif
 }
 
 void JitComposer::clear()

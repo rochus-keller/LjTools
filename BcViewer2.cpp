@@ -19,7 +19,11 @@
 
 #include "BcViewer2.h"
 #include "LjDisasm.h"
+#ifdef USE_JITCOMPOSER2
+#include "LuaJitComposer2.h"
+#else
 #include "LuaJitComposer.h"
+#endif
 #include "Engine2.h"
 #include <QHeaderView>
 #include <QFile>

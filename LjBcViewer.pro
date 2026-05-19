@@ -31,6 +31,7 @@ SOURCES += LjBcViewerMain.cpp \
     LuaHighlighter.cpp \
     LuaJitBytecode.cpp \
     Engine2.cpp \
+    LuaJitHelper.cpp \
     Terminal2.cpp \
     ExpressionParser.cpp \
     BcViewer2.cpp \
@@ -44,6 +45,7 @@ HEADERS  += LjBcViewerMain.h \
     LuaHighlighter.h \
     LuaJitBytecode.h \
     Engine2.h \
+    LuaJitHelper.h \
     Terminal2.h \
     ExpressionParser.h \
     BcViewer2.h \

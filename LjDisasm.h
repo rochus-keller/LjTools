@@ -20,7 +20,11 @@
 * http://www.gnu.org/copyleft/gpl.html.
 */
 
-#include <LjTools/LuaJitBytecode.h>
+#ifdef USE_JITCOMPOSER2
+#include "LuaJitBytecode2.h"
+#else
+#include "LuaJitBytecode.h"
+#endif
 
 class QIODevice;
 class QTextStream;

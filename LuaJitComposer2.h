@@ -1,8 +1,8 @@
-#ifndef LUAJITCOMPOSER_H
-#define LUAJITCOMPOSER_H
+#ifndef LUAJITCOMPOSER2_H
+#define LUAJITCOMPOSER2_H
 
 /*
-* Copyright 2019, 2020 Rochus Keller <mailto:me@rochus-keller.ch>
+* Copyright 2019, 2020, 2026 Rochus Keller <mailto:me@rochus-keller.ch>
 *
 * This file is part of the JuaJIT BC Viewer application.
 *
@@ -21,7 +21,7 @@
 */
 
 #include <QObject>
-#include <LjTools/LuaJitBytecode.h>
+#include <LjTools/LuaJitBytecode2.h>
 #include <LjTools/LuaJitHelper.h>
 #include <bitset>
 
@@ -73,7 +73,11 @@ namespace Lua
         explicit JitComposer(QObject *parent = 0);
 
         void clear();
-        int getCallFrameSize() const { return 1; }
+
+        void setVersion(JitBytecode::LjVersion v) { d_bc.setVersion(v); }
+        JitBytecode::LjVersion getVersion() const { return d_bc.getVersion(); }
+        bool isFR2() const { return d_bc.isFR2(); }
+        int getCallFrameSize() const { return d_bc.isFR2() ? 2 : 1; }
 
         int openFunction(quint8 parCount, const QByteArray& sourceRef, quint32 firstLine = 0, quint32 lastLine = 0 );
         bool closeFunction(quint8 frameSize);
@@ -164,6 +168,7 @@ namespace Lua
         static bool releaseSlot( SlotPool& pool, quint8 slot, int len = 1 );
         static int highestUsedSlot( const SlotPool& pool );
         static int lowestUnusedSlot(const SlotPool& pool , int start = 0);
+
     protected:
         JitBytecode d_bc;
         bool d_hasDebugInfo;
@@ -181,4 +186,4 @@ namespace Lua
     };
 }
 
-#endif // LUAJITCOMPOSER_H
+#endif // LUAJITCOMPOSER2_H

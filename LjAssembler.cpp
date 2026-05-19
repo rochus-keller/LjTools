@@ -19,6 +19,7 @@
 
 #include "LjAssembler.h"
 #include "LjasErrors.h"
+#include "LuaJitHelper.h"
 #include <QBitArray>
 #include <QtDebug>
 #include <QElapsedTimer>
@@ -647,11 +648,11 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         Q_ASSERT( s.d_vals.size() == 2 );
         if( s.d_vals.last().canConvert<Named*>() )
             s.d_op = st->d_tok.d_type == SynTree::R_ISEQ_ ? JitBytecode::OP_ISEQV : JitBytecode::OP_ISNEV;
-        else if( JitBytecode::isString( s.d_vals.last() ) )
+        else if( JitValue::isString( s.d_vals.last() ) )
             s.d_op = st->d_tok.d_type == SynTree::R_ISEQ_ ? JitBytecode::OP_ISEQS : JitBytecode::OP_ISNES;
-        else if( JitBytecode::isPrimitive( s.d_vals.last() ) )
+        else if( JitValue::isPrimitive( s.d_vals.last() ) )
             s.d_op = st->d_tok.d_type == SynTree::R_ISEQ_ ? JitBytecode::OP_ISEQP : JitBytecode::OP_ISNEP;
-        else if( JitBytecode::isNumber( s.d_vals.last() ) )
+        else if( JitValue::isNumber( s.d_vals.last() ) )
             s.d_op = st->d_tok.d_type == SynTree::R_ISEQ_ ? JitBytecode::OP_ISEQN : JitBytecode::OP_ISNEN;
         else
             return error(st->d_children[2],tr("argument 2 has not supported type") );
@@ -669,7 +670,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         if( !fetchVcn( st->d_children[3], s, me ) )
             return false;
         Q_ASSERT( s.d_vals.size() == 3 );
-        if( JitBytecode::isNumber(s.d_vals[1]) && s.d_vals[2].canConvert<Named*>() )
+        if( JitValue::isNumber(s.d_vals[1]) && s.d_vals[2].canConvert<Named*>() )
         {
             switch( st->d_tok.d_type ) // A = C op B
             {
@@ -690,7 +691,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
                 break;
             }
             qSwap( s.d_vals[1], s.d_vals[2] );
-        }else if( s.d_vals[1].canConvert<Named*>() && JitBytecode::isNumber(s.d_vals[2]) )
+        }else if( s.d_vals[1].canConvert<Named*>() && JitValue::isNumber(s.d_vals[2]) )
         {
             switch( st->d_tok.d_type ) // A = B op C
             {
@@ -749,11 +750,11 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         if( !fetchCsnp(st->d_children[2], s, me) )
             return false;
         Q_ASSERT( s.d_vals.size() == 2 );
-        if( JitBytecode::isString( s.d_vals.last() ) )
+        if( JitValue::isString( s.d_vals.last() ) )
             s.d_op = JitBytecode::OP_KSTR;
-        else if( JitBytecode::isPrimitive( s.d_vals.last() ) )
+        else if( JitValue::isPrimitive( s.d_vals.last() ) )
             s.d_op = JitBytecode::OP_KPRI;
-        else if( JitBytecode::isNumber( s.d_vals.last() ) )
+        else if( JitValue::isNumber( s.d_vals.last() ) )
         {
             QVariant v = s.d_vals.last();
             if( v.type() == QVariant::Double )
@@ -841,11 +842,11 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         if( !fetchVcsnp(st->d_children[2], s, me) )
             return false;
         Q_ASSERT( s.d_vals.size() == 2 );
-        if( JitBytecode::isString( s.d_vals.last() ) )
+        if( JitValue::isString( s.d_vals.last() ) )
             s.d_op = JitBytecode::OP_USETS;
-        else if( JitBytecode::isPrimitive( s.d_vals.last() ) )
+        else if( JitValue::isPrimitive( s.d_vals.last() ) )
             s.d_op = JitBytecode::OP_USETP;
-        else if( JitBytecode::isNumber( s.d_vals.last() ) )
+        else if( JitValue::isNumber( s.d_vals.last() ) )
             s.d_op = JitBytecode::OP_USETN;
         else if( s.d_vals.last().canConvert<Named*>() )
             s.d_op = JitBytecode::OP_USETV;
@@ -935,7 +936,7 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
             if( !fetchC( st->d_children[2], s, me ) )
                 return false;
             Q_ASSERT( s.d_vals.size() == 2 );
-            if( !JitBytecode::isString(s.d_vals.last()) )
+            if( !JitValue::isString(s.d_vals.last()) )
                 return error( st->d_children[2], tr("expecting string") );
         }else if( st->d_children[2]->d_tok.d_type == Tok_string )
         {
@@ -955,9 +956,9 @@ bool Assembler::processStat(SynTree* st, Assembler::Stmts& l, Func* me)
         Q_ASSERT( s.d_vals.size() == 3 );
         if( s.d_vals.last().canConvert<Named*>() )
             s.d_op = st->d_tok.d_type == SynTree::R_TGET_ ? JitBytecode::OP_TGETV : JitBytecode::OP_TSETV;
-        else if( JitBytecode::isString( s.d_vals.last() ) )
+        else if( JitValue::isString( s.d_vals.last() ) )
             s.d_op = st->d_tok.d_type == SynTree::R_TGET_ ? JitBytecode::OP_TGETS : JitBytecode::OP_TSETS;
-        else if( JitBytecode::isNumber( s.d_vals.last() ) && s.d_vals.last().toInt() <= UCHAR_MAX )
+        else if( JitValue::isNumber( s.d_vals.last() ) && s.d_vals.last().toInt() <= UCHAR_MAX )
             s.d_op = st->d_tok.d_type == SynTree::R_TGET_ ? JitBytecode::OP_TGETB : JitBytecode::OP_TSETB;
         else
             return error(st->d_children[2],tr("argument 3 has not supported type") );
@@ -1766,7 +1767,7 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
     case JitBytecode::Instruction::_base:
         if( Var* vv = toVar(v) )
             return vv->d_slot;
-        else if( JitBytecode::isNumber(v) )
+        else if( JitValue::isNumber(v) )
         {
             const qint32 slot = v.toInt();
             if( slot < 0 || slot > JitComposer::MAX_SLOTS )
@@ -1775,22 +1776,22 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
         }
         break;
     case JitBytecode::Instruction::_str:
-        if( JitBytecode::isString(v) )
+        if( JitValue::isString(v) )
             return d_comp.getConstSlot(v); // TODO negate
         break;
     case JitBytecode::Instruction::_num:
-        if( JitBytecode::isNumber(v) )
+        if( JitValue::isNumber(v) )
             return d_comp.getConstSlot(v);
         break;
     case JitBytecode::Instruction::_pri:
-        return JitBytecode::toPrimitive(v);
+        return JitValue::toPrimitive(v);
     case JitBytecode::Instruction::_cdata:
         return d_comp.getConstSlot(v); // TODO negate
 
     case JitBytecode::Instruction::_jump:
         // jump is already converted and biased when arriving here
     case JitBytecode::Instruction::_lit:
-        if( JitBytecode::isNumber(v) )
+        if( JitValue::isNumber(v) )
         {
             qint32 i = v.toInt();
             if( i >= 0 && i <= USHRT_MAX )
@@ -1798,7 +1799,7 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
         }
         break;
     case JitBytecode::Instruction::_lits:
-        if( JitBytecode::isNumber(v) )
+        if( JitValue::isNumber(v) )
         {
             qint32 i = v.toInt();
             if( i >= SHRT_MIN && i <= SHRT_MAX )
@@ -1809,7 +1810,7 @@ int Assembler::toValue(Assembler::Func* f, JitBytecode::Instruction::FieldType t
         if( Var* vv = toVar(v) )
         {
             return f->resolveUpval(vv,false);
-        }else if( JitBytecode::isNumber(v) )
+        }else if( JitValue::isNumber(v) )
             return v.toUInt();
         break;
     case JitBytecode::Instruction::_func:

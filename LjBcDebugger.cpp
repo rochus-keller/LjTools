@@ -27,7 +27,11 @@
 #include <LjTools/BcViewer2.h>
 #include <LjTools/BcViewer.h>
 #include <LjTools/LuaJitEngine.h>
-#include <LjTools/LuaJitComposer.h>
+#ifdef USE_JITCOMPOSER2
+#include "LuaJitComposer2.h"
+#else
+#include "LuaJitComposer.h"
+#endif
 #include <lua.hpp>
 #include <QtDebug>
 #include <QDockWidget>

@@ -1,5 +1,5 @@
 /*
-* Copyright 2019, 2020 Rochus Keller <mailto:me@rochus-keller.ch>
+* Copyright 2019, 2020, 2026 Rochus Keller <mailto:me@rochus-keller.ch>
 *
 * This file is part of the JuaJIT BC Viewer application.
 *
@@ -17,34 +17,37 @@
 * http://www.gnu.org/copyleft/gpl.html.
 */
 
-#include "LuaJitBytecode.h"
+#include "LuaJitBytecode2.h"
 #include "LuaJitHelper.h"
 #include <QtDebug>
 #include <QFile>
 #include <QtEndian>
-#include <lj_bc.h>
+/* lj_bc.h is intentionally NOT included here.
+   The s_byteCodes[] table and bit-extraction macros are defined locally
+   to avoid opcode-order mismatches between the 2.0 Op enum and 2.1 BCDEF. */
+
+#include <lua.h>
+#include <lj_arch.h>
 #include <QBuffer>
 #include "StreamSpy.h"
 using namespace Lua;
-
-// Adapted from LuaJIT 2.0.5 lj_bcread.c
 
 /* Bytecode dump header. */
 #define BCDUMP_HEAD1		0x1b
 #define BCDUMP_HEAD2		0x4c
 #define BCDUMP_HEAD3		0x4a
 
-/* If you perform *any* kind of private modifications to the bytecode itself
-** or to the dump format, you *must* set BCDUMP_VERSION to 0x80 or higher.
-*/
-#define BCDUMP_VERSION		1
+#define BCDUMP_VERSION_2_0	1
+#define BCDUMP_VERSION_2_1	2
 
 /* Compatibility flags. */
 #define BCDUMP_F_BE		0x01
 #define BCDUMP_F_STRIP		0x02
 #define BCDUMP_F_FFI		0x04
 
-#define BCDUMP_F_KNOWN		(BCDUMP_F_FFI*2-1)
+#define BCDUMP_F_FR2		0x08
+#define BCDUMP_F_KNOWN_2_0	(BCDUMP_F_FFI*2-1)
+#define BCDUMP_F_KNOWN_2_1	(BCDUMP_F_FR2*2-1)
 
 /* Flags for prototype. */
 #define PROTO_CHILD		0x01	/* Has child prototypes. */
@@ -96,6 +99,38 @@ union TValue {
 };
 
 typedef uint8_t BCReg;
+
+static const int s_numByteCodes = 93; /* 85 regular + 8 FUNC headers, matching Op enum (2.0 order) */
+
+/* Bit-extraction macros for bytecode instructions (from lj_bc.h). */
+#define bc_op(i)  ((int)((i)&0xff))
+#define bc_a(i)   ((BCReg)(((i)>>8)&0xff))
+#define bc_b(i)   ((BCReg)((i)>>24))
+#define bc_c(i)   ((BCReg)(((i)>>16)&0xff))
+
+/* Static bytecode descriptor table matching the Op enum in LuaJitBytecode2.h.
+   This MUST follow the 2.0 opcode order (without ISTYPE, ISNUM, TGETR, TSETR)
+   because the Op enum uses 2.0 numbering as the internal representation.
+   We cannot use BCDEF() from lj_bc.h here because when compiled against
+   LuaJIT 2.1 that macro expands to 2.1 order (97 entries) while our Op enum
+   only has 93 entries in 2.0 order, causing format lookup mismatches. */
+enum {
+    _f___ = JitBytecode::Instruction::Unused,
+    _fvar = JitBytecode::Instruction::_var,
+    _fstr = JitBytecode::Instruction::_str,
+    _fnum = JitBytecode::Instruction::_num,
+    _fpri = JitBytecode::Instruction::_pri,
+    _fdst = JitBytecode::Instruction::_dst,
+    _frbs = JitBytecode::Instruction::_rbase,
+    _fcda = JitBytecode::Instruction::_cdata,
+    _flit = JitBytecode::Instruction::_lit,
+    _flts = JitBytecode::Instruction::_lits,
+    _fbas = JitBytecode::Instruction::_base,
+    _fuv  = JitBytecode::Instruction::_uv,
+    _fjmp = JitBytecode::Instruction::_jump,
+    _ffun = JitBytecode::Instruction::_func,
+    _ftab = JitBytecode::Instruction::_tab
+};
 struct _ByteCode
 {
     const char* d_op;
@@ -104,10 +139,109 @@ struct _ByteCode
     quint8 d_fcd;
 } s_byteCodes[] =
 {
-#define BCSTRUCT(name, ma, mb, mc, mt) { #name, JitBytecode::Instruction::_##ma, \
-    JitBytecode::Instruction::_##mb, JitBytecode::Instruction::_##mc },
-BCDEF(BCSTRUCT)
-#undef BCSTRUCT
+    /* Comparison ops (0..15) */
+    { "ISLT",   _fvar, _f___, _fvar },
+    { "ISGE",   _fvar, _f___, _fvar },
+    { "ISLE",   _fvar, _f___, _fvar },
+    { "ISGT",   _fvar, _f___, _fvar },
+    { "ISEQV",  _fvar, _f___, _fvar },
+    { "ISNEV",  _fvar, _f___, _fvar },
+    { "ISEQS",  _fvar, _f___, _fstr },
+    { "ISNES",  _fvar, _f___, _fstr },
+    { "ISEQN",  _fvar, _f___, _fnum },
+    { "ISNEN",  _fvar, _f___, _fnum },
+    { "ISEQP",  _fvar, _f___, _fpri },
+    { "ISNEP",  _fvar, _f___, _fpri },
+    { "ISTC",   _fdst, _f___, _fvar },
+    { "ISFC",   _fdst, _f___, _fvar },
+    { "IST",    _f___, _f___, _fvar },
+    { "ISF",    _f___, _f___, _fvar },
+    /* Unary ops (16..19) */
+    { "MOV",    _fdst, _f___, _fvar },
+    { "NOT",    _fdst, _f___, _fvar },
+    { "UNM",    _fdst, _f___, _fvar },
+    { "LEN",    _fdst, _f___, _fvar },
+    /* Binary ops (20..36) */
+    { "ADDVN",  _fdst, _fvar, _fnum },
+    { "SUBVN",  _fdst, _fvar, _fnum },
+    { "MULVN",  _fdst, _fvar, _fnum },
+    { "DIVVN",  _fdst, _fvar, _fnum },
+    { "MODVN",  _fdst, _fvar, _fnum },
+    { "ADDNV",  _fdst, _fvar, _fnum },
+    { "SUBNV",  _fdst, _fvar, _fnum },
+    { "MULNV",  _fdst, _fvar, _fnum },
+    { "DIVNV",  _fdst, _fvar, _fnum },
+    { "MODNV",  _fdst, _fvar, _fnum },
+    { "ADDVV",  _fdst, _fvar, _fvar },
+    { "SUBVV",  _fdst, _fvar, _fvar },
+    { "MULVV",  _fdst, _fvar, _fvar },
+    { "DIVVV",  _fdst, _fvar, _fvar },
+    { "MODVV",  _fdst, _fvar, _fvar },
+    { "POW",    _fdst, _fvar, _fvar },
+    { "CAT",    _fdst, _frbs, _frbs },
+    /* Constant ops (37..42) */
+    { "KSTR",   _fdst, _f___, _fstr },
+    { "KCDATA", _fdst, _f___, _fcda },
+    { "KSHORT", _fdst, _f___, _flts },
+    { "KNUM",   _fdst, _f___, _fnum },
+    { "KPRI",   _fdst, _f___, _fpri },
+    { "KNIL",   _fbas, _f___, _fbas },
+    /* Upvalue and function ops (43..49) */
+    { "UGET",   _fdst, _f___, _fuv  },
+    { "USETV",  _fuv,  _f___, _fvar },
+    { "USETS",  _fuv,  _f___, _fstr },
+    { "USETN",  _fuv,  _f___, _fnum },
+    { "USETP",  _fuv,  _f___, _fpri },
+    { "UCLO",   _frbs, _f___, _fjmp },
+    { "FNEW",   _fdst, _f___, _ffun },
+    /* Table ops (50..60) */
+    { "TNEW",   _fdst, _f___, _flit },
+    { "TDUP",   _fdst, _f___, _ftab },
+    { "GGET",   _fdst, _f___, _fstr },
+    { "GSET",   _fvar, _f___, _fstr },
+    { "TGETV",  _fdst, _fvar, _fvar },
+    { "TGETS",  _fdst, _fvar, _fstr },
+    { "TGETB",  _fdst, _fvar, _flit },
+    { "TSETV",  _fvar, _fvar, _fvar },
+    { "TSETS",  _fvar, _fvar, _fstr },
+    { "TSETB",  _fvar, _fvar, _flit },
+    { "TSETM",  _fbas, _f___, _fnum },
+    /* Calls and vararg handling (61..68) */
+    { "CALLM",  _fbas, _flit, _flit },
+    { "CALL",   _fbas, _flit, _flit },
+    { "CALLMT", _fbas, _f___, _flit },
+    { "CALLT",  _fbas, _f___, _flit },
+    { "ITERC",  _fbas, _flit, _flit },
+    { "ITERN",  _fbas, _flit, _flit },
+    { "VARG",   _fbas, _flit, _flit },
+    { "ISNEXT", _fbas, _f___, _fjmp },
+    /* Returns (69..72) */
+    { "RETM",   _fbas, _f___, _flit },
+    { "RET",    _frbs, _f___, _flit },
+    { "RET0",   _frbs, _f___, _flit },
+    { "RET1",   _frbs, _f___, _flit },
+    /* Loops and branches (73..84) */
+    { "FORI",   _fbas, _f___, _fjmp },
+    { "JFORI",  _fbas, _f___, _fjmp },
+    { "FORL",   _fbas, _f___, _fjmp },
+    { "IFORL",  _fbas, _f___, _fjmp },
+    { "JFORL",  _fbas, _f___, _flit },
+    { "ITERL",  _fbas, _f___, _fjmp },
+    { "IITERL", _fbas, _f___, _fjmp },
+    { "JITERL", _fbas, _f___, _flit },
+    { "LOOP",   _frbs, _f___, _fjmp },
+    { "ILOOP",  _frbs, _f___, _fjmp },
+    { "JLOOP",  _frbs, _f___, _flit },
+    { "JMP",    _frbs, _f___, _fjmp },
+    /* Function headers (85..92) */
+    { "FUNCF",  _frbs, _f___, _f___ },
+    { "IFUNCF", _frbs, _f___, _f___ },
+    { "JFUNCF", _frbs, _f___, _flit },
+    { "FUNCV",  _frbs, _f___, _f___ },
+    { "IFUNCV", _frbs, _f___, _f___ },
+    { "JFUNCV", _frbs, _f___, _flit },
+    { "FUNCC",  _frbs, _f___, _f___ },
+    { "FUNCCW", _frbs, _f___, _f___ }
 };
 
 const char* JitBytecode::Instruction::s_typeName[] =
@@ -452,10 +586,51 @@ static QByteArray readNames(QIODevice* in, int len, int sizeuv, QByteArrayList& 
     return rawVars;
 }
 
-JitBytecode::JitBytecode(QObject *parent) : QObject(parent)
+/* Opcode translation table: internal (2.0) enum -> 2.1 binary value.
+** 0..15 (ISLT..ISF): same (+0)
+** 16..56 (MOV..TGETB): +2 (ISTYPE, ISNUM inserted after ISF)
+** 57..60 (TSETV..TSETM): +3 (TGETR inserted after TGETB)
+** 61..92 (CALLM..FUNCCW): +4 (TSETR inserted after TSETM)
+*/
+static const quint8 s_opMap20to21[] =
 {
-    //for( int i = 0; i < BC__MAX; i++ )
-    //   qDebug() << QString("OP_%1, ").arg(s_byteCodes[i].d_op).toUtf8().constData();
+     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, /* ISLT..ISF */
+    18, 19, 20, 21,                                                   /* MOV..LEN */
+    22, 23, 24, 25, 26, 27, 28, 29, 30, 31,                           /* ADDVN..MODNV */
+    32, 33, 34, 35, 36, 37, 38,                                       /* ADDVV..CAT */
+    39, 40, 41, 42, 43, 44,                                           /* KSTR..KNIL */
+    45, 46, 47, 48, 49, 50, 51,                                       /* UGET..FNEW */
+    52, 53, 54, 55, 56, 57, 58,                                       /* TNEW..TGETB */
+    60, 61, 62, 63,                                                   /* TSETV..TSETM */
+    65, 66, 67, 68, 69, 70, 71, 72,                                   /* CALLM..ISNEXT */
+    73, 74, 75, 76,                                                   /* RETM..RET1 */
+    77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88,                   /* FORI..JMP */
+    89, 90, 91, 92, 93, 94, 95, 96                                    /* FUNCF..FUNCCW */
+};
+
+/* Reverse table: 2.1 binary value -> internal (2.0) enum.
+   2.1 opcodes 16(ISTYPE), 17(ISNUM), 59(TGETR), 64(TSETR) map to OP_INVALID. */
+static const quint8 s_opMap21to20[] =
+{
+     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, /* ISLT..ISF */
+    255, 255,                                                         /* ISTYPE, ISNUM -> invalid */
+    16, 17, 18, 19,                                                   /* MOV..LEN */
+    20, 21, 22, 23, 24, 25, 26, 27, 28, 29,                           /* ADDVN..MODNV */
+    30, 31, 32, 33, 34, 35, 36,                                       /* ADDVV..CAT */
+    37, 38, 39, 40, 41, 42,                                           /* KSTR..KNIL */
+    43, 44, 45, 46, 47, 48, 49,                                       /* UGET..FNEW */
+    50, 51, 52, 53, 54, 55, 56,                                       /* TNEW..TGETB */
+    255,                                                              /* TGETR -> invalid */
+    57, 58, 59, 60,                                                   /* TSETV..TSETM */
+    255,                                                              /* TSETR -> invalid */
+    61, 62, 63, 64, 65, 66, 67, 68,                                   /* CALLM..ISNEXT */
+    69, 70, 71, 72,                                                   /* RETM..RET1 */
+    73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84,                   /* FORI..JMP */
+    85, 86, 87, 88, 89, 90, 91, 92                                    /* FUNCF..FUNCCW */
+};
+
+JitBytecode::JitBytecode(QObject *parent) : QObject(parent),d_version(LJ_V_2_0),d_fr2(false)
+{
 }
 
 bool JitBytecode::parse(const QString& file)
@@ -543,7 +718,7 @@ JitBytecode::Instruction JitBytecode::dissectInstruction(quint32 i)
 {
     Instruction res;
     const int op = bc_op(i);
-    if( op >= 0 && op < BC__MAX )
+    if( op >= 0 && op < s_numByteCodes )
     {
         const _ByteCode& bc = s_byteCodes[op];
         res.d_name = bc.d_op;
@@ -572,7 +747,7 @@ JitBytecode::Op JitBytecode::opFromBc(quint32 i)
 
 JitBytecode::Format JitBytecode::formatFromOp(quint8 op)
 {
-    if( op < BC__MAX && s_byteCodes[op].d_fb != Instruction::Unused )
+    if( op < s_numByteCodes && s_byteCodes[op].d_fb != Instruction::Unused )
         return ABC;
     else
         return AD;
@@ -580,7 +755,7 @@ JitBytecode::Format JitBytecode::formatFromOp(quint8 op)
 
 JitBytecode::Instruction::FieldType JitBytecode::typeCdFromOp(quint8 op)
 {
-    if( op < BC__MAX )
+    if( op < s_numByteCodes )
         return (Instruction::FieldType)s_byteCodes[op].d_fcd;
     else
         return Instruction::Unused;
@@ -588,7 +763,7 @@ JitBytecode::Instruction::FieldType JitBytecode::typeCdFromOp(quint8 op)
 
 JitBytecode::Instruction::FieldType JitBytecode::typeBFromOp(quint8 op)
 {
-    if( op < BC__MAX )
+    if( op < s_numByteCodes )
         return (Instruction::FieldType)s_byteCodes[op].d_fb;
     else
         return Instruction::Unused;
@@ -596,7 +771,7 @@ JitBytecode::Instruction::FieldType JitBytecode::typeBFromOp(quint8 op)
 
 JitBytecode::Instruction::FieldType JitBytecode::typeAFromOp(quint8 op)
 {
-    if( op < BC__MAX )
+    if( op < s_numByteCodes )
         return (Instruction::FieldType)s_byteCodes[op].d_fa;
     else
         return Instruction::Unused;
@@ -605,21 +780,33 @@ JitBytecode::Instruction::FieldType JitBytecode::typeAFromOp(quint8 op)
 bool JitBytecode::parseHeader(QIODevice* in)
 {
     const QByteArray buf = in->read(4);
-    const QString err = checkFileHeader(buf);
-    if( !err.isEmpty() )
-        return error(err);
+    if( buf.size() < 4 )
+        return error("file too short, invalid header");
+    if( buf[0] != char(BCDUMP_HEAD1) || buf[1] != char(BCDUMP_HEAD2) || buf[2] != char(BCDUMP_HEAD3) )
+        return error("invalid header format");
+
+    const quint8 ver = (quint8)buf[3];
+    if( ver == BCDUMP_VERSION_2_0 )
+        d_version = LJ_V_2_0;
+    else if( ver == BCDUMP_VERSION_2_1 )
+        d_version = LJ_V_2_1;
+    else
+        return error("unsupported bytecode version");
 
     d_flags = bcread_uleb128(in);
 
-    if ((d_flags & ~(BCDUMP_F_KNOWN)) != 0)
+    const quint8 knownMask = (d_version == LJ_V_2_1) ? BCDUMP_F_KNOWN_2_1 : BCDUMP_F_KNOWN_2_0;
+    if ((d_flags & ~knownMask) != 0)
         return error("unknown dump");
     if ((d_flags & BCDUMP_F_FFI))
         return error("FFI dumps not supported");
 
+    d_fr2 = (d_version == LJ_V_2_1) && (d_flags & BCDUMP_F_FR2);
+
     if( (d_flags & BCDUMP_F_STRIP) == 0 )
     {
         const quint32 len = bcread_uleb128(in);
-        d_name = in->read(len); // "@test.lua"
+        d_name = in->read(len);
     }
 
     return true;
@@ -630,9 +817,12 @@ bool JitBytecode::writeHeader(QIODevice* out)
     writeByte(out,BCDUMP_HEAD1);
     writeByte(out,BCDUMP_HEAD2);
     writeByte(out,BCDUMP_HEAD3);
-    writeByte(out,BCDUMP_VERSION);
-    writeByte( out, ( isStripped() ? BCDUMP_F_STRIP : 0 ) +
-               ( QSysInfo::ByteOrder == QSysInfo::BigEndian ? BCDUMP_F_BE : 0 ) );
+    writeByte(out, d_version == LJ_V_2_1 ? BCDUMP_VERSION_2_1 : BCDUMP_VERSION_2_0);
+    quint8 flags = ( isStripped() ? BCDUMP_F_STRIP : 0 ) |
+               ( QSysInfo::ByteOrder == QSysInfo::BigEndian ? BCDUMP_F_BE : 0 );
+    if( d_fr2 )
+        flags |= BCDUMP_F_FR2;
+    writeByte( out, flags );
     if( !isStripped() )
     {
         const QByteArray name = d_name.toUtf8();
@@ -668,6 +858,19 @@ bool JitBytecode::parseFunction(QIODevice* in )
 
     const bool swap = ( d_flags & BCDUMP_F_BE ) != ( QSysInfo::ByteOrder == QSysInfo::BigEndian );
     f.d_byteCodes = readCode(in, swap, sizebc);
+    if( d_version == LJ_V_2_1 )
+    {
+        for( int j = 0; j < f.d_byteCodes.size(); j++ )
+        {
+            quint32& bc = f.d_byteCodes[j];
+            const quint8 op21 = bc & 0xff;
+            if( op21 < sizeof(s_opMap21to20) )
+            {
+                const quint8 op20 = s_opMap21to20[op21];
+                bc = (bc & ~0xff) | op20;
+            }
+        }
+    }
     // Note: original prefixes bc with BC_FUNCV or BC_FUNCF and framesize, depending on flags PROTO_VARARG
 
     f.d_upvals = readUpval( in, swap, sizeuv );
@@ -987,7 +1190,13 @@ bool JitBytecode::writeByteCodes(QIODevice* out, const JitBytecode::CodeList& l)
     char buf[4];
     for( int i = 0; i < l.size(); i++ )
     {
-        const quint32 tmp = l[i];
+        quint32 tmp = l[i];
+        if( d_version == LJ_V_2_1 )
+        {
+            const quint8 op = tmp & 0xff;
+            if( op < sizeof(s_opMap20to21) )
+                tmp = (tmp & ~0xff) | s_opMap20to21[op];
+        }
         ::memcpy( buf, &tmp, 4 );
         out->write(buf,4);
     }
@@ -1003,9 +1212,33 @@ bool JitBytecode::error(const QString& msg)
 void JitBytecode::setStripped(bool on)
 {
     if( on )
-        d_flags = BCDUMP_F_STRIP;
+        d_flags |= BCDUMP_F_STRIP;
     else
-        d_flags = 0;
+        d_flags &= ~BCDUMP_F_STRIP;
+}
+
+void JitBytecode::setVersion(JitBytecode::LjVersion v)
+{
+    d_version = v;
+#if defined(LJ_FR2) && LJ_FR2
+    d_fr2 = (v == LJ_V_2_1);
+#else
+    d_fr2 = false;
+#endif
+}
+
+quint8 JitBytecode::mapOp20to21(quint8 op20)
+{
+    if( op20 < sizeof(s_opMap20to21) )
+        return s_opMap20to21[op20];
+    return 255;
+}
+
+quint8 JitBytecode::mapOp21to20(quint8 op21)
+{
+    if( op21 < sizeof(s_opMap21to20) )
+        return s_opMap21to20[op21];
+    return 255;
 }
 
 uint qHash(const QVariant& v, uint seed)
@@ -1056,8 +1289,8 @@ QString JitBytecode::checkFileHeader(const QByteArray& buf)
     if( buf[0] != char(BCDUMP_HEAD1) || buf[1] != char(BCDUMP_HEAD2) || buf[2] != char(BCDUMP_HEAD3) )
         return "invalid header format";
 
-    if( buf[3] != char(BCDUMP_VERSION) )
-        return "wrong version";
+    if( buf[3] != char(BCDUMP_VERSION_2_0) && buf[3] != char(BCDUMP_VERSION_2_1) )
+        return "unsupported bytecode version";
     return QString();
 }
 

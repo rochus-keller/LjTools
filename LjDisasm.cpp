@@ -18,8 +18,14 @@
 */
 
 #include "LjDisasm.h"
+#ifdef USE_JITCOMPOSER2
+#include "LuaJitBytecode2.h"
+#include "LuaJitComposer2.h"
+#else
 #include "LuaJitBytecode.h"
 #include "LuaJitComposer.h"
+#endif
+#include "LuaJitHelper.h"
 #include <QtDebug>
 #include <QSet>
 #include <QTextStream>
@@ -689,9 +695,9 @@ static QByteArray tostring(const QVariant& v)
     if( v.type() == QVariant::ByteArray )
     {
         return "\"" + escape( v.toByteArray() ) + "\"";
-    }else if( JitBytecode::isString( v ) )
+    }else if( JitValue::isString( v ) )
         return "\"" + v.toString().toUtf8() + "\"";
-    else if( JitBytecode::isNumber( v ) )
+    else if( JitValue::isNumber( v ) )
         return QByteArray::number( v.toDouble() );
     else
         return v.toByteArray();

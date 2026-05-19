@@ -68,3 +68,9 @@ CONFIG(debug, debug|release) {
 RESOURCES += \
     LuaIde.qrc
 
+HEADERS += \
+    LuaJitHelper.h
+
+SOURCES += \
+    LuaJitHelper.cpp
+

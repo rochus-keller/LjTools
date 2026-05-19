@@ -27,6 +27,7 @@
 #include <LjTools/BcViewer2.h>
 #include <LjTools/BcViewer.h>
 #include <LjTools/LuaJitEngine.h>
+#include "LuaJitHelper.h"
 #include <lua.hpp>
 #include <QtDebug>
 #include <QDockWidget>
@@ -1686,7 +1687,7 @@ void LuaIde::fillLocals()
         {
             typeAddr(item,v.d_value);
             fillLocalSubs(item,v.d_value.toMap() );
-        }else if( JitBytecode::isString(v.d_value) )
+        }else if( JitValue::isString(v.d_value) )
         {
             if( v.d_type == Engine2::LocalVar::CDATA || v.d_type == Engine2::LocalVar::UNKNOWN )
                 item->setText(1, v.d_value.toString().simplified());
