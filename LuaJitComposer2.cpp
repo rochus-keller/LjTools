@@ -737,6 +737,37 @@ static inline void setCallArgs(JitComposer::SlotPool& pool, int slot, bool callA
 
 int JitComposer::nextFreeSlot(SlotPool& pool, int len, bool callArgs )
 {
+#if 1
+    // Always allocate sequentially at highestUsedSlot + 1 to match the standard
+    // Lua compiler's LIFO register discipline. This prevents the JIT recorder
+    // from encountering stale TRef markers in reused slots (see rec_check_slots
+    // in lj_record.c). The cost is slightly higher register usage, but this
+    // stays well within LuaJIT's 250-slot limit and matches what the standard
+    // Lua compiler does.
+    // Unfortunately, the patch (https://github.com/LuaJIT/LuaJIT/issues/1462) is still
+    // required, as it seems, to avoid the segfault
+    int slot = highestUsedSlot(pool) + 1;
+    if( slot < pool.d_slots.size() )
+    {
+        Q_ASSERT( !pool.d_slots.test(slot) );
+        if( len == 1 )
+        {
+            pool.d_slots.set(slot);
+            setFrameSize(pool,slot,len);
+            setCallArgs(pool,slot,callArgs);
+            return slot;
+        } // else
+        const int free = checkFree( pool, slot, len );
+        if( free == len )
+        {
+            fill(pool,true,slot,slot+len);
+            setFrameSize(pool,slot,len);
+            setCallArgs(pool,slot,callArgs);
+            return slot;
+        }
+    }
+#else
+    // before with LuaJIT 2.0
     int slot = 0;
     if( !pool.d_callArgs.isEmpty() )
         slot = pool.d_callArgs.back(); // in any case don't start search lower than a present call
@@ -771,6 +802,7 @@ int JitComposer::nextFreeSlot(SlotPool& pool, int len, bool callArgs )
         }else
             break;
     }
+#endif
     return -1;
 }
 
@@ -800,6 +832,13 @@ int JitComposer::lowestUnusedSlot(const JitComposer::SlotPool& pool, int start)
     while( slot < pool.d_slots.size() && pool.d_slots.test(slot) )
         slot++;
     return slot; // returns either a free slot or one >= pool.size()
+}
+
+int JitComposer::currentHighWater(const JitComposer::SlotPool& pool)
+{
+    // Returns the first slot above all currently allocated slots.
+    // Use this for JMP operand A to give the JIT a tight maxslot hint.
+    return highestUsedSlot(pool) + 1;
 }
 
 bool JitComposer::allocateWithLinearScan(SlotPool& pool, JitComposer::Intervals& vars, int len)

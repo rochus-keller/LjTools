@@ -30,6 +30,11 @@ The repository now contains two sets of JitComposer and JitBytecode: the unmodif
 NOTE that there seems to be an issue in the LuaJIT 2.1 engine which causes some of the example Luon applications to crash. To avoid the crash, please apply [the patch
 described in this issue](https://github.com/LuaJIT/LuaJIT/issues/1462) to LuaJIT 2.1 (LuaJIT 2.0 is not affected).
 
+Update on 2026-05-20: Mike Pall's response to my issue was, to put it mildly, **very disappointing**. He meanwhile even deleted the issue, 
+but [you can still access it here](./patches/GitHub_LuaJIT_issue_1462.pdf).
+
+I made some changes to JitComposer2 to further align its behaviour with the Lua compiler, which e.g. uses a simpler register allocation scheme. The patch is still required.
+
 ### Lua parser and IDE features
 
 - Project file format: combine Lua modules to a single project

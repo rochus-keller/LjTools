@@ -1,0 +1,55 @@
+Title: Segfault because of stale JIT slot TRefs after CALL return in lj_snap_restore
+Originally submitted in https://github.com/LuaJIT/LuaJIT/issues/1462 on May 19. 2026
+Unfortunately removed by Pall for no good reasons on May 20. 2026.
+See GitHub_LuaJIT_issue_1462.pdf for details about the patch.
+
+How to apply:
+1. Copy the patch file to the LuaJIT 2.1 root directory
+2. From the LuaJIT 2.1 root directory, execute `git apply lj_record_stale_tref_fix.patch`
+
+--- a/src/lj_record.c
++++ b/src/lj_record.c
+@@ -979,6 +979,8 @@
+       }
+       lj_snap_add(J);
+     }
++    {
++    BCReg callee_ms = J->maxslot;
+     for (i = 0; i < nresults; i++)  /* Adjust results. */
+       J->base[i-1-LJ_FR2] = i < gotresults ? J->base[rbase+i] : TREF_NIL;
+     J->maxslot = cbase+(BCReg)nresults;
+@@ -987,6 +989,11 @@
+       lj_assertJ(J->baseslot > cbase+1+LJ_FR2, "bad baseslot for return");
+       J->baseslot -= cbase+1+LJ_FR2;
+       J->base -= cbase+1+LJ_FR2;
++      /* Clear stale callee frame/local slots above the result area. */
++      { BCReg j;
++	for (j = J->maxslot; j < cbase+1+LJ_FR2+callee_ms; j++)
++	  J->base[j] = 0;
++      }
+     } else if (J->parent == 0 && J->exitno == 0 &&
+ 	       !bc_isret(bc_op(J->cur.startins))) {
+@@ -1008,9 +1015,11 @@
+       memmove(J->base + cbase, J->base-1-LJ_FR2, sizeof(TRef)*nresults);
+       memset(J->base-1-LJ_FR2, 0, sizeof(TRef)*(cbase+1+LJ_FR2));
+     }
++    }
+   } else if (frame_iscont(frame)) {  /* Return to continuation frame. */
+     ASMFunction cont = frame_contf(frame);
+     BCReg cbase = (BCReg)frame_delta(frame);
++    BCReg mm_ms = J->maxslot;
+     if ((J->framedepth -= 2) < 0)
+       lj_trace_err(J, LJ_TRERR_NYIRETL);
+     J->baseslot -= (BCReg)cbase;
+@@ -1060,6 +1069,11 @@
+       lj_assertJ(cont == lj_cont_condf || cont == lj_cont_condt,
+ 		 "bad continuation type");
+     }
++    /* Clear stale continuation + metamethod frame slots. */
++    { BCReg j;
++      for (j = J->maxslot; j < cbase+mm_ms; j++)
++	J->base[j] = 0;
++    }
+   } else {
+     lj_trace_err(J, LJ_TRERR_NYIRETL);
+   }
