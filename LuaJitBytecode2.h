@@ -77,6 +77,7 @@ namespace Lua
             Function* d_outer;
 
             Function():d_isRoot(false),d_outer(0){}
+            virtual ~Function() {}
 
             const Var* findVar( int pc, int slot, int* idx = 0 ) const;
             QByteArray getVarName( int pc, int slot, int* idx = 0 ) const;

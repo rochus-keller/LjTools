@@ -142,8 +142,9 @@ bool JitComposer::addOpImp(JitBytecode::Op op, quint8 a, quint8 b, quint16 cd, q
     {
         if( d_hasDebugInfo )
         {
-            if( line < d_bc.d_fstack.back()->d_firstline ||
-                    line > ( d_bc.d_fstack.back()->d_firstline + d_bc.d_fstack.back()->d_numline - 1 ))
+            const quint32 row = !d_useRowColFormat && isRowCol() ? unpackRow(line) : line;
+            if( row < d_bc.d_fstack.back()->d_firstline ||
+                    row > ( d_bc.d_fstack.back()->d_firstline + d_bc.d_fstack.back()->d_numline - 1 ))
                 qWarning() << "JitComposer::addOpImp: line number not in function" <<
                               d_bc.d_name << unpackRow(line) << unpackCol(line);
             else if( d_useRowColFormat && isRowCol() && ( unpackRow(line) == 0 || unpackCol(line) == 0 ) )

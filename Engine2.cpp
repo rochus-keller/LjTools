@@ -22,6 +22,7 @@
 #include "Engine2.h"
 #include <QCoreApplication>
 #include <math.h>
+#include <string.h>
 #include <QtDebug>
 #include <iostream>
 #include <QTime>
@@ -709,6 +710,14 @@ int Engine2::ErrHandler( lua_State* L )
 
     if( e->d_dbgCmd == Abort || e->d_dbgCmd == AbortSilently )
         return 1; // don't break if user wants to abort
+
+    if( lua_type(L,1) == LUA_TSTRING )
+    {
+        // after a stack overflow the frame of the running function is replaced by a dummy string
+        const char* msg = lua_tostring(L,1);
+        if( msg && strstr(msg, "stack overflow") != 0 )
+            return 1;
+    }
 
     StackLevel l = e->getStackLevel(0,false);
 

@@ -1,0 +1,21 @@
+Title: Accept '$' as identifier continuation character in FFI C declaration parser
+This patch allows C symbol names containing '$' (e.g. Files$Open, MIC$$printStr)
+to be declared via ffi.cdef and accessed via ffi.C. The '$' character is only
+accepted as a continuation character within identifiers, not at the start of a
+token, so the existing $1/$2 parameter substitution syntax is preserved.
+
+How to apply:
+1. Copy the patch file to the LuaJIT 2.1 root directory
+2. From the LuaJIT 2.1 root directory, execute `git apply lj_cparse_dollar_ident.patch`
+
+--- a/src/lj_cparse.c
++++ b/src/lj_cparse.c
+@@ -188,7 +188,7 @@
+ /* Parse identifier or keyword. */
+ static CPToken cp_ident(CPState *cp)
+ {
+-  do { cp_save(cp, cp->c); } while (lj_char_isident(cp_get(cp)));
++  do { cp_save(cp, cp->c); } while (lj_char_isident(cp_get(cp)) || cp->c == '$');
+   cp->str = lj_buf_str(cp->L, &cp->sb);
+   cp->val.id = lj_ctype_getname(cp->cts, &cp->ct, cp->str, cp->tmask);
+   if (ctype_type(cp->ct->info) == CT_KW)
